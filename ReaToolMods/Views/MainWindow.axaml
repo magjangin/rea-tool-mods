@@ -1,6 +1,8 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:ReaToolMods.ViewModels"
+        xmlns:svc="using:ReaToolMods.Services"
+
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="880"
@@ -16,6 +18,24 @@
         <vm:MainViewModel />
     </Design.DataContext>
 
+    <Window.Resources>
+        <!-- 타겟 선택 버튼 (선택된 타겟은 accent, 자동 판별 결과는 🔎 표시) -->
+        <DataTemplate x:Key="TargetButtonTemplate" x:DataType="vm:TargetButtonViewModel">
+            <Button Command="{Binding SelectCommand}"
+                    Classes.accent="{Binding IsSelected}"
+                    ToolTip.Tip="{Binding Tooltip}"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Margin="5" Padding="12,10" CornerRadius="6" Cursor="Hand">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="{Binding Profile.Icon}" FontSize="14" />
+                    <TextBlock Text="{Binding Profile.ButtonLabel}" FontWeight="SemiBold" FontSize="12.5" />
+                    <TextBlock Text="🔎" FontSize="11" IsVisible="{Binding IsDetected}" ToolTip.Tip="자동 판별 결과" />
+                </StackPanel>
+            </Button>
+        </DataTemplate>
+    </Window.Resources>
+
+
     <Grid Margin="26" RowDefinitions="Auto,*,Auto">
         <!-- Top App Header -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,18">
@@ -28,13 +48,13 @@
                             CornerRadius="4" 
                             Padding="8,2" 
                             VerticalAlignment="Center">
-                        <TextBlock Text="v1.3" 
+                        <TextBlock Text="v1.4" 
                                    FontSize="11" 
                                    FontWeight="Bold" 
                                    Foreground="White" />
                     </Border>
                 </StackPanel>
-                <TextBlock Text="작업 폴더 자동 생성 · 타겟 디컴파일 · 빌드 및 실행 검증 워크플로우 지원" 
+                <TextBlock Text="파일 내용 자동 판별 · Unity IL2CPP/Mono · 기존 작업 이어하기 · 환경 점검 지원" 
                            FontSize="13" 
                            Opacity="0.75" />
             </StackPanel>
@@ -79,8 +99,8 @@
                                    FontWeight="SemiBold" />
                         
                         <!-- 1. Target File Path Row -->
-                        <Grid RowDefinitions="Auto,Auto" RowSpacing="4">
-                            <TextBlock Text="1) 대상 파일 경로 (EXE, DLL, APK, APP/ASAR):" 
+                        <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
+                            <TextBlock Text="1) 대상 파일 경로 (EXE, DLL, APK, APP/ASAR, Unity 게임 exe · GameAssembly.dll · global-metadata.dat · IPA):" 
                                        FontSize="12" Opacity="0.8" FontWeight="SemiBold" />
                             <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                 <TextBox Grid.Column="0" 
@@ -101,15 +121,19 @@
                                     </StackPanel>
                                 </Button>
                             </Grid>
+                            <TextBlock Grid.Row="2"
+                                       Text="{Binding DetectionSummary}"
+                                       IsVisible="{Binding DetectionSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       FontSize="12" Opacity="0.8" TextWrapping="Wrap" />
                         </Grid>
 
                         <!-- 2. Work Directory Path Row -->
-                        <Grid RowDefinitions="Auto,Auto" RowSpacing="4">
+                        <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
                             <TextBlock Text="2) 디컴파일 및 소스 생성 작업 폴더 (Work Directory):" 
                                        FontSize="12" Opacity="0.8" FontWeight="SemiBold" />
-                            <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                <TextBox Grid.Column="0" 
-                                         Text="{Binding WorkDirPath}" 
+                            <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding WorkDirPath}"  
                                          PlaceholderText="디컴파일된 파일들이 생성될 작업 폴더 (예: H:\source\repos\target_workspace)..." 
                                          CornerRadius="6" 
                                          Padding="12,9" 
@@ -125,60 +149,53 @@
                                         <TextBlock Text="작업 폴더 선택..." FontWeight="SemiBold" FontSize="12.5" />
                                     </StackPanel>
                                 </Button>
+                                <Button Grid.Column="2"
+                                        Command="{Binding OpenWorkDirCommand}"
+                                        ToolTip.Tip="탐색기에서 작업 폴더 열기"
+                                        Padding="14,9"
+                                        CornerRadius="6"
+                                        Cursor="Hand">
+                                    <TextBlock Text="↗ 열기" FontWeight="SemiBold" FontSize="12.5" />
+                                </Button>
                             </Grid>
+                            <TextBlock Grid.Row="2"
+                                       Text="{Binding WorkspaceSummary}"
+                                       FontSize="12" Opacity="0.8" TextWrapping="Wrap" />
                         </Grid>
 
-                        <!-- The 4 Core Targets Buttons -->
-                        <StackPanel Spacing="8" Margin="0,4,0,0">
-                            <TextBlock Text="3) 분석 타겟 포맷 선택 (클릭 시 전용 디컴파일/실행 프롬프트 생성):" 
-                                       FontSize="12.5" 
-                                       Opacity="0.8" 
+                        <!-- Target Buttons: 일반 4종 + Unity 4종 -->
+                        <StackPanel Spacing="6" Margin="0,4,0,0">
+                            <TextBlock Text="3) 분석 타겟 선택 (파일을 고르면 내용으로 자동 판별 · 클릭 시 전용 프롬프트 생성):"
+                                       FontSize="12.5"
+                                       Opacity="0.8"
                                        FontWeight="SemiBold" />
-                            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="10">
-                                <!-- EXE -->
-                                <Button Grid.Column="0" 
-                                        Command="{Binding ApplyPresetCommand}" CommandParameter="exe" 
-                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                        Padding="14,10" CornerRadius="6" Cursor="Hand">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="🖥️" FontSize="14" />
-                                        <TextBlock Text="EXE (디컴파일 &amp; 스켈레톤)" FontWeight="SemiBold" FontSize="12.5" />
-                                    </StackPanel>
-                                </Button>
-
-                                <!-- DLL -->
-                                <Button Grid.Column="1" 
-                                        Command="{Binding ApplyPresetCommand}" CommandParameter="dll" 
-                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                        Padding="14,10" CornerRadius="6" Cursor="Hand">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="⚙️" FontSize="14" />
-                                        <TextBlock Text="DLL (C# 디컴파일 &amp; 빌드)" FontWeight="SemiBold" FontSize="12.5" />
-                                    </StackPanel>
-                                </Button>
-
-                                <!-- APK -->
-                                <Button Grid.Column="2" 
-                                        Command="{Binding ApplyPresetCommand}" CommandParameter="apk" 
-                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                        Padding="14,10" CornerRadius="6" Cursor="Hand">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="📱" FontSize="14" />
-                                        <TextBlock Text="APK (Java 디컴파일 &amp; ADB)" FontWeight="SemiBold" FontSize="12.5" />
-                                    </StackPanel>
-                                </Button>
-
-                                <!-- APP -->
-                                <Button Grid.Column="3" 
-                                        Command="{Binding ApplyPresetCommand}" CommandParameter="app" 
-                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                        Padding="14,10" CornerRadius="6" Cursor="Hand">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="📦" FontSize="14" />
-                                        <TextBlock Text="APP (ASAR 언팩 &amp; 앱 실행)" FontWeight="SemiBold" FontSize="12.5" />
-                                    </StackPanel>
-                                </Button>
-                            </Grid>
+                            <TextBlock Text="일반 타겟" FontSize="11.5" Opacity="0.6" Margin="2,2,0,0" />
+                            <ItemsControl ItemsSource="{Binding GeneralTargets}"
+                                          ItemTemplate="{StaticResource TargetButtonTemplate}"
+                                          Margin="-5,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="4" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                            <TextBlock Text="Unity 타겟 (IL2CPP · Mono · 안드로이드 · iOS/macOS)" FontSize="11.5" Opacity="0.6" Margin="2,2,0,0" />
+                            <ItemsControl ItemsSource="{Binding UnityTargets}"
+                                          ItemTemplate="{StaticResource TargetButtonTemplate}"
+                                          Margin="-5,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="4" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                            <TextBlock Text="{Binding ValidationWarning}"
+                                       IsVisible="{Binding ValidationWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="#D29922"
+                                       FontSize="12.5"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap"
+                                       Margin="2,4,0,0" />
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -204,9 +221,10 @@
                                                    FontWeight="Bold" />
                                     </Border>
                                 </StackPanel>
-                                <TextBlock Text="에이전트가 폴더를 생성하고 대상 도구로 소스를 디컴파일한 후 실행/빌드 검증을 수행하도록 설계된 지시문입니다." 
-                                           FontSize="12.5" 
-                                           Opacity="0.75" />
+                                <TextBlock Text="기존 작업 폴더가 있으면 PROGRESS.md를 읽고 이어서 진행하도록, 없으면 새로 시작해 진행 상황을 기록하도록 생성됩니다."
+                                           FontSize="12.5"
+                                           Opacity="0.75"
+                                           TextWrapping="Wrap" />
                             </StackPanel>
                         </Grid>
 
@@ -232,7 +250,15 @@
                                         <TextBlock Text="클립보드 복사" FontWeight="SemiBold" FontSize="13" />
                                     </StackPanel>
                                 </Button>
-                                <Button Command="{Binding ClearPromptCommand}" 
+                                <Button Command="{Binding RegeneratePromptManuallyCommand}"
+                                        ToolTip.Tip="현재 대상 파일 · 작업 폴더 상태 · 도구 설치 상태로 프롬프트를 다시 만듭니다"
+                                        Padding="16,10" CornerRadius="6" Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="🔄" FontSize="14" />
+                                        <TextBlock Text="다시 생성" FontSize="13" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Command="{Binding ClearPromptCommand}"  
                                         Padding="16,10" CornerRadius="6" Cursor="Hand">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <TextBlock Text="🗑️" FontSize="14" />
@@ -260,6 +286,64 @@
                                 </Button>
                             </StackPanel>
                         </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Section 3: Environment Check Card -->
+                <Border Background="{DynamicResource SystemAltHighColor}"
+                        BorderBrush="{DynamicResource SystemListMediumColor}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="20">
+                    <StackPanel Spacing="12">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="🧰 환경 점검 (분석 도구 · 에뮬레이터 · REA 연동 · 게임 모드 로더)"
+                                       FontSize="15"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding EnvironmentSummary}"
+                                       FontSize="12.5"
+                                       Opacity="0.8"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="10" LineSpacing="8">
+                            <Button Command="{Binding CheckEnvironmentCommand}"
+                                    Classes="accent"
+                                    Padding="14,8" CornerRadius="6" Cursor="Hand">
+                                <TextBlock Text="🔍 다시 점검" FontWeight="SemiBold" FontSize="12.5" />
+                            </Button>
+                            <Button Command="{Binding RunToolDownloaderCommand}"
+                                    ToolTip.Tip="ilspycmd · asar · JADX · Apktool · Il2CppDumper · Cpp2IL 설치"
+                                    Padding="14,8" CornerRadius="6" Cursor="Hand">
+                                <TextBlock Text="⬇️ 분석 도구 설치 (bat)" FontSize="12.5" />
+                            </Button>
+                            <Button Command="{Binding RunEmulatorCheckCommand}"
+                                    ToolTip.Tip="CPU 가상화(VT) · Hyper-V 충돌 · 녹스 설치/실행 · ADB 연결 점검"
+                                    Padding="14,8" CornerRadius="6" Cursor="Hand">
+                                <TextBlock Text="📱 VT · 녹스 점검 (bat)" FontSize="12.5" />
+                            </Button>
+                            <Button Command="{Binding RunReaSetupCommand}"
+                                    ToolTip.Tip="REA 스킬 동기화 및 MCP 에이전트 연동"
+                                    Padding="14,8" CornerRadius="6" Cursor="Hand">
+                                <TextBlock Text="🔗 REA 연동 설정 (bat)" FontSize="12.5" />
+                            </Button>
+                        </WrapPanel>
+
+                        <ItemsControl ItemsSource="{Binding EnvironmentChecks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="svc:EnvironmentCheck">
+                                    <Grid ColumnDefinitions="28,140,190,*" Margin="0,4">
+                                        <TextBlock Grid.Column="0" Text="{Binding StatusIcon}" FontSize="13" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Group}" FontSize="11.5" Opacity="0.55" Margin="0,1,0,0" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Name}" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <StackPanel Grid.Column="3" Spacing="1">
+                                            <TextBlock Text="{Binding Detail}" FontSize="12" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding UsedBy, StringFormat='사용처: {0}'}" FontSize="11" Opacity="0.55" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                 </Border>
             </StackPanel>

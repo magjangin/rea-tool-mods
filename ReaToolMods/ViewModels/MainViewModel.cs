@@ -1,19 +1,43 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ReaToolMods.Models;
 using ReaToolMods.Services;
 
 namespace ReaToolMods.ViewModels;
 
 public partial class MainViewModel : ViewModelBase
 {
+    private const string PreferredReposRoot = @"H:\source\repos";
+
+    private readonly List<TargetButtonViewModel> _targetButtons;
+    private TargetProfile _profile = TargetCatalog.Get(TargetKind.Exe);
+    private DetectionResult? _detection;
+    private int _detectVersion;
+    private string _lastGeneratedPrompt = "";
+
+    // 사용자가 직접 고르거나 입력한 작업 폴더는 자동 네이밍으로 덮어쓰지 않음
+    private bool _workDirPinned;
+    // 코드에서 경로를 바꾸는 중인지 (사용자 입력과 구분)
+    private bool _settingWorkDir;
+    private bool _settingTarget;
+
+    /// <summary>작업 폴더 상위 경로 (H 드라이브가 없으면 %USERPROFILE%\source\repos)</summary>
+    public static string ReposRoot { get; } =
+        Directory.Exists(Path.GetPathRoot(PreferredReposRoot))
+            ? PreferredReposRoot
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "source", "repos");
+
     [ObservableProperty]
     public partial string Title { get; set; } = "REA Tool Mods";
 
@@ -27,7 +51,7 @@ public partial class MainViewModel : ViewModelBase
     public partial string TargetFilePath { get; set; } = "";
 
     [ObservableProperty]
-    public partial string WorkDirPath { get; set; } = @"H:\source\repos\target-windows";
+    public partial string WorkDirPath { get; set; } = "";
 
     [ObservableProperty]
     public partial string SelectedTargetCategory { get; set; } = "EXE";
@@ -38,50 +62,87 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     public partial string StatusMessage { get; set; } = "준비 완료";
 
+    /// <summary>파일 내용 기반 자동 판별 결과 요약</summary>
+    [ObservableProperty]
+    public partial string DetectionSummary { get; set; } = "";
+
+    /// <summary>선택한 타겟과 파일이 맞지 않을 때의 경고</summary>
+    [ObservableProperty]
+    public partial string ValidationWarning { get; set; } = "";
+
+    /// <summary>작업 폴더 상태 (새 폴더 / 이어서 진행)</summary>
+    [ObservableProperty]
+    public partial string WorkspaceSummary { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string EnvironmentSummary { get; set; } = "환경 점검을 실행하세요.";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CheckEnvironmentCommand))]
+    public partial bool IsCheckingEnvironment { get; set; }
+
+    public IReadOnlyList<TargetButtonViewModel> GeneralTargets { get; }
+    public IReadOnlyList<TargetButtonViewModel> UnityTargets { get; }
+    public ObservableCollection<EnvironmentCheck> EnvironmentChecks { get; } = [];
+
     public MainViewModel()
     {
-        ApplyPreset("exe");
+        _targetButtons = TargetCatalog.All.Select(p => new TargetButtonViewModel(p, SelectTarget)).ToList();
+        GeneralTargets = _targetButtons.Where(b => !b.Profile.IsUnity).ToList();
+        UnityTargets = _targetButtons.Where(b => b.Profile.IsUnity).ToList();
+
+        SelectTarget(_profile);
+
+        if (!Design.IsDesignMode)
+        {
+            _ = CheckEnvironmentAsync();
+        }
     }
+
+    // ───────────────────────── 링크 ─────────────────────────
 
     [RelayCommand]
     public void OpenGitHubRepo()
     {
-        OpenUrl(ReaRepoUrl);
+        OpenShell(ReaRepoUrl);
         StatusMessage = "GitHub 저장소 페이지를 브라우저에서 열었습니다.";
     }
 
     [RelayCommand]
     public void OpenReleases()
     {
-        OpenUrl(ReaReleasesUrl);
+        OpenShell(ReaReleasesUrl);
         StatusMessage = "GitHub Releases 다운로드 페이지를 브라우저에서 열었습니다.";
     }
 
-    /// <summary>
-    /// 대상 파일 선택 다이얼로그 (StorageProvider)
-    /// </summary>
+    // ───────────────────────── 대상 파일 / 작업 폴더 ─────────────────────────
+
     [RelayCommand]
     public async Task BrowseFileAsync()
     {
         try
         {
-            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
-                desktop.MainWindow != null)
-            {
-                var files = await desktop.MainWindow.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-                {
-                    Title = "분석 대상 파일 선택 (EXE, DLL, APK, APP/ASAR)",
-                    AllowMultiple = false
-                });
+            if (MainWindow is not { } window) return;
 
-                if (files != null && files.Count > 0)
-                {
-                    TargetFilePath = files[0].Path.LocalPath;
-                    AutoDetectTargetCategory(TargetFilePath);
-                    UpdateWorkDirPath(SelectedTargetCategory);
-                    ApplyPreset(SelectedTargetCategory.ToLowerInvariant());
-                    StatusMessage = $"대상 파일 및 작업 폴더 설정 완료: {Path.GetFileName(TargetFilePath)}";
-                }
+            var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "분석 대상 파일 선택 (EXE, DLL, APK, APP/ASAR, Unity 게임)",
+                AllowMultiple = false,
+                FileTypeFilter =
+                [
+                    new FilePickerFileType("분석 대상")
+                    {
+                        Patterns = ["*.exe", "*.dll", "*.apk", "*.xapk", "*.apks", "*.aab", "*.ipa", "*.asar", "*.zip", "*.dat"]
+                    },
+                    FilePickerFileTypes.All
+                ]
+            });
+
+            if (files.Count > 0)
+            {
+                var path = files[0].Path.LocalPath;
+                SetTarget(path);
+                await LoadTargetAsync(path);
             }
         }
         catch (Exception ex)
@@ -90,30 +151,37 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// 작업 폴더 수동 선택 다이얼로그 (StorageProvider)
-    /// </summary>
     [RelayCommand]
     public async Task BrowseFolderAsync()
     {
         try
         {
-            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
-                desktop.MainWindow != null)
-            {
-                var folders = await desktop.MainWindow.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-                {
-                    Title = "디컴파일 및 작업 폴더 선택",
-                    AllowMultiple = false
-                });
+            if (MainWindow is not { } window) return;
 
-                if (folders != null && folders.Count > 0)
-                {
-                    WorkDirPath = folders[0].Path.LocalPath;
-                    ApplyPreset(SelectedTargetCategory.ToLowerInvariant());
-                    StatusMessage = $"작업 폴더 설정 완료: {WorkDirPath}";
-                }
+            var folders = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "디컴파일 및 작업 폴더 선택",
+                AllowMultiple = false
+            });
+            if (folders.Count == 0) return;
+
+            var folder = folders[0].Path.LocalPath;
+            SetWorkDir(folder);
+            _workDirPinned = true;
+
+            // 이전에 이 도구로 만든 작업 폴더면 대상 파일과 타겟 종류를 복원
+            var meta = WorkspaceInspector.LoadMetadata(folder);
+            if (meta != null && File.Exists(meta.TargetPath) && !SamePath(meta.TargetPath, CleanPath(TargetFilePath)))
+            {
+                SetTarget(meta.TargetPath);
+                await LoadTargetAsync(meta.TargetPath, keepWorkDir: true, preferredKind: meta.Kind);
+                StatusMessage = $"♻️ 이전 작업 정보를 복원했습니다: {Path.GetFileName(meta.TargetPath)} [{TargetCatalog.Get(meta.Kind).ShortName}]";
+                return;
             }
+
+            RefreshValidation();
+            RegeneratePrompt();
+            StatusMessage = $"작업 폴더 설정 완료: {WorkDirPath}";
         }
         catch (Exception ex)
         {
@@ -121,169 +189,269 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// 타겟 확장자별 구분 접미사 반환 (예: -windows, -dotnet, -android, -electron)
-    /// </summary>
-    private static string GetSuffixForCategory(string category) => category.ToLowerInvariant() switch
+    [RelayCommand]
+    public void OpenWorkDir()
     {
-        "exe" => "-windows",
-        "dll" => "-dotnet",
-        "apk" => "-android",
-        "app" => "-electron",
-        _ => "-workspace"
-    };
-
-    /// <summary>
-    /// 대상 파일의 기본 이름(확장자 제외)과 타겟 구분을 조합하여 작업 폴더 자동 생성
-    /// (예: H:\source\repos\Assembly-CSharp-dotnet, H:\source\repos\MyGame-windows)
-    /// </summary>
-    private void UpdateWorkDirPath(string? category = null)
-    {
-        var cat = category ?? SelectedTargetCategory;
-        var suffix = GetSuffixForCategory(cat);
-
-        string baseName = "target";
-        if (!string.IsNullOrWhiteSpace(TargetFilePath))
+        if (Directory.Exists(WorkDirPath))
         {
-            try
-            {
-                var name = Path.GetFileNameWithoutExtension(TargetFilePath);
-                if (!string.IsNullOrWhiteSpace(name))
-                {
-                    baseName = name;
-                }
-            }
-            catch { }
-        }
-
-        WorkDirPath = Path.Combine(@"H:\source\repos", $"{baseName}{suffix}");
-    }
-
-    /// <summary>
-    /// 파일 확장자 기반 4대 타겟(EXE, DLL, APK, APP) 자동 추론
-    /// </summary>
-    private void AutoDetectTargetCategory(string filePath)
-    {
-        var ext = Path.GetExtension(filePath).ToLowerInvariant();
-
-        if (ext == ".apk" || ext == ".aab")
-        {
-            SelectedTargetCategory = "APK";
-        }
-        else if (ext == ".dll")
-        {
-            SelectedTargetCategory = "DLL";
-        }
-        else if (ext == ".app" || ext == ".asar" || ext == ".zip")
-        {
-            SelectedTargetCategory = "APP";
+            OpenShell(WorkDirPath);
+            StatusMessage = $"작업 폴더를 열었습니다: {WorkDirPath}";
         }
         else
         {
-            SelectedTargetCategory = "EXE";
+            StatusMessage = "작업 폴더가 아직 없습니다. 프롬프트를 전송하면 생성됩니다.";
         }
     }
 
-    /// <summary>
-    /// 4대 타겟(EXE, DLL, APK, APP) 디컴파일 및 실행 워크플로우 프롬프트 프리셋
-    /// </summary>
-    [RelayCommand]
-    public void ApplyPreset(string? category)
+    partial void OnTargetFilePathChanged(string value)
     {
-        var cat = (category ?? "exe").ToLowerInvariant();
-        SelectedTargetCategory = cat.ToUpperInvariant();
-        
-        UpdateWorkDirPath(SelectedTargetCategory);
+        if (_settingTarget) return;
 
-        var targetInfo = string.IsNullOrWhiteSpace(TargetFilePath) 
-            ? @"[분석 대상 파일 경로를 입력하거나 선택하세요]" 
-            : TargetFilePath;
-        var workDir = string.IsNullOrWhiteSpace(WorkDirPath)
-            ? @"H:\source\repos\target-windows"
-            : WorkDirPath;
-
-        switch (cat)
+        // 직접 입력/붙여넣기한 경로가 실제 파일이면 바로 판별
+        var path = CleanPath(value);
+        if (File.Exists(path) || (path.EndsWith(".app", StringComparison.OrdinalIgnoreCase) && Directory.Exists(path)))
         {
-            case "exe":
-                PromptText = 
-$@"# [EXE 역공학 및 디컴파일/실행 워크플로우 요청]
-- 대상 바이너리: {targetInfo}
-- 작업 디렉터리: {workDir}
-
-[수행 지침]
-1. 작업 폴더 생성:
-   - '{workDir}' 디렉터리가 없으면 새로 생성하고 작업 환경을 초기화해줘.
-2. 디컴파일 및 의사코드 덤프:
-   - REA 또는 정적 분석 도구를 사용하여 대상 바이너리의 함수 심볼, Import/Export 테이블, 의사코드(Pseudocode)를 '{workDir}\decompiled'에 추출해줘.
-   - 메인 엔트리포인트와 핵심 로직 제어 흐름을 명세서로 정리해줘.
-3. 스켈레톤 복원 및 실행 테스트:
-   - 바이너리의 핵심 동작을 재현/테스트할 수 있는 C/C++ 또는 C# 실행 스켈레톤 프로젝트를 '{workDir}' 내에 생성해줘.
-   - 빌드 후 직접 실행하여 결과를 검증하고 로그를 출력해줘.";
-                break;
-
-            case "dll":
-                PromptText = 
-$@"# [DLL 디컴파일 및 C# 프로젝트 복원/실행 워크플로우 요청]
-- 대상 어셈블리: {targetInfo}
-- 작업 디렉터리: {workDir}
-
-[수행 지침]
-1. 작업 폴더 생성:
-   - '{workDir}' 디렉터리를 만들고 분석 환경을 준비해줘.
-2. C# 전체 프로젝트 디컴파일 복원:
-   - ilspycmd 도구를 사용하여 대상 DLL을 완전한 C# 프로젝트 소스 코드로 역개설 디컴파일해줘:
-     `ilspycmd -p -o ""{workDir}\src"" ""{targetInfo}""`
-   - 생성된 C# 소스 파일과 클래스 계층 구조를 점검해줘.
-3. 빌드 및 테스트 실행:
-   - 복원된 프로젝트 폴더(`{workDir}\src`)에서 `dotnet build`를 실행하여 빌드 성공 여부를 확인해줘.
-   - MelonLoader 또는 테스트 런처를 통해 정상 구동되는지 실행 및 로그를 검증해줘.";
-                break;
-
-            case "apk":
-                PromptText = 
-$@"# [APK 디컴파일 및 안드로이드 프로젝트 복원/실행 워크플로우 요청]
-- 대상 파일: {targetInfo}
-- 작업 디렉터리: {workDir}
-
-[수행 지침]
-1. 작업 폴더 생성:
-   - '{workDir}' 디렉터리를 생성해줘.
-2. 소스 코드 및 리소스 전체 디컴파일:
-   - JADX를 사용하여 Java 소스 코드를 디컴파일해줘:
-     `jadx -d ""{workDir}\jadx_src"" ""{targetInfo}""`
-   - Apktool을 사용하여 AndroidManifest.xml 및 리소스를 추출해줘:
-     `apktool d -f -o ""{workDir}\apktool_out"" ""{targetInfo}""`
-3. 구조 분석 및 에뮬레이터/ADB 실행 준비:
-   - 메인 액티비티 진입점과 주요 네이티브(.so) 라이브러리 연동부를 파악해줘.
-   - 필요 시 ADB 또는 에뮬레이터 환경에서 패키지를 설치 및 실행(`adb install`, `adb shell am start`)하여 동작을 검증해줘.";
-                break;
-
-            case "app":
-                PromptText = 
-$@"# [APP / Electron 디컴파일 및 소스 추출/실행 워크플로우 요청]
-- 대상 파일: {targetInfo}
-- 작업 디렉터리: {workDir}
-
-[수행 지침]
-1. 작업 폴더 생성:
-   - '{workDir}' 디렉터리를 생성해줘.
-2. ASAR 패키지 언팩 및 내부 소스 추출:
-   - @electron/asar 도구를 사용하여 내부 패키지 내용을 전부 풀어줘:
-     `npx asar extract ""{targetInfo}"" ""{workDir}\extracted""`
-   - main.js, preload.js 및 렌더러 소스 파일 구조를 파악해줘.
-3. 로컬 실행 및 동작 테스트:
-   - 추출된 디렉터리(`{workDir}\extracted`)에서 필요한 의존성을 확인한 후:
-     `npm install` 및 `npx electron .` 명령어로 앱을 직접 실행 구동해줘.
-   - IPC 통신 채널과 주요 UI 기능이 정상 동작하는지 테스트해줘.";
-                break;
+            _ = LoadTargetAsync(path);
         }
+    }
 
-        StatusMessage = $"[{SelectedTargetCategory}] 디컴파일 및 실행 워크플로우 프롬프트가 적용되었습니다. (폴더: {Path.GetFileName(workDir)})";
+    partial void OnWorkDirPathChanged(string value)
+    {
+        if (_settingWorkDir) return;
+        _workDirPinned = true;
+        RegeneratePrompt();
     }
 
     /// <summary>
-    /// 프롬프트 입력창 내용 초기화
+    /// 대상 파일 내용을 판별해 타겟 버튼, 작업 폴더, 프롬프트를 갱신합니다.
     /// </summary>
+    private async Task LoadTargetAsync(string path, bool keepWorkDir = false, TargetKind? preferredKind = null)
+    {
+        var version = ++_detectVersion;
+        StatusMessage = $"🔎 대상 파일 분석 중: {Path.GetFileName(path)}";
+
+        var detection = await Task.Run(() => TargetDetector.Detect(path));
+        if (version != _detectVersion) return; // 그 사이 다른 파일이 선택됨
+
+        _detection = detection;
+        if (!keepWorkDir) _workDirPinned = false;
+
+        foreach (var b in _targetButtons) b.IsDetected = b.Profile.Kind == detection.Kind;
+
+        var kindName = TargetCatalog.Get(detection.Kind).ShortName;
+        DetectionSummary = $"🔎 자동 판별: {kindName}" +
+                           (detection.Evidence.Count > 0 ? " — " + string.Join(" · ", detection.Evidence) : "");
+
+        SelectTarget(TargetCatalog.Get(preferredKind ?? detection.Kind));
+        ReplaceGameChecks(detection);
+
+        var ws = WorkspaceInspector.Inspect(WorkDirPath, path);
+        StatusMessage = ws.HasContent
+            ? $"♻️ [{kindName}] 판별 완료 — 기존 작업 폴더를 찾았습니다. 이어서 진행하는 프롬프트를 만들었습니다: {WorkDirPath}"
+            : $"[{kindName}] 판별 완료 — 작업 폴더: {WorkDirPath}";
+    }
+
+    // ───────────────────────── 타겟 선택 / 프롬프트 ─────────────────────────
+
+    private void SelectTarget(TargetProfile profile)
+    {
+        _profile = profile;
+        SelectedTargetCategory = profile.ShortName;
+        foreach (var b in _targetButtons) b.IsSelected = b.Profile == profile;
+
+        UpdateWorkDirPath();
+        RefreshValidation();
+        RegeneratePrompt();
+        UpdateEnvironmentSummary();
+
+        StatusMessage = string.IsNullOrEmpty(ValidationWarning)
+            ? $"[{profile.ShortName}] 워크플로우 프롬프트가 적용되었습니다. (폴더: {Path.GetFileName(WorkDirPath)})"
+            : $"[{profile.ShortName}] 프롬프트 적용 — 대상 파일 확인 필요 (아래 경고 참고)";
+    }
+
+    [RelayCommand]
+    public void RegeneratePromptManually()
+    {
+        RefreshValidation();
+        RegeneratePrompt();
+        StatusMessage = "현재 대상/작업 폴더 상태로 프롬프트를 다시 생성했습니다.";
+    }
+
+    /// <param name="onlyIfUnmodified">true면 사용자가 프롬프트를 직접 고친 경우 덮어쓰지 않음</param>
+    private void RegeneratePrompt(bool onlyIfUnmodified = false)
+    {
+        var target = CleanPath(TargetFilePath);
+        var ws = WorkspaceInspector.Inspect(WorkDirPath, target);
+        WorkspaceSummary = DescribeWorkspace(ws);
+
+        if (onlyIfUnmodified && PromptText != _lastGeneratedPrompt) return;
+
+        var ctx = new PromptContext(_profile, target, WorkDirPath, _detection, ws, ToolLocator.LocateAll());
+        PromptText = _lastGeneratedPrompt = PromptBuilder.Build(ctx);
+    }
+
+    private void RefreshValidation()
+    {
+        var warnings = TargetDetector.Validate(_profile, CleanPath(TargetFilePath), _detection);
+        ValidationWarning = string.Join(Environment.NewLine, warnings.Select(w => "⚠️ " + w));
+    }
+
+    /// <summary>
+    /// 대상 파일 이름 + 타겟 접미사로 작업 폴더를 정합니다. 같은 대상의 기존 작업 폴더가 있으면 그 폴더를 이어서 씁니다.
+    /// </summary>
+    private void UpdateWorkDirPath()
+    {
+        if (_workDirPinned) return;
+
+        var target = CleanPath(TargetFilePath);
+        var baseName = "target";
+        try
+        {
+            var name = Path.GetFileNameWithoutExtension(target.TrimEnd('\\', '/'));
+            if (!string.IsNullOrWhiteSpace(name)) baseName = name;
+        }
+        catch { }
+
+        var auto = Path.Combine(ReposRoot, baseName + _profile.FolderSuffix);
+        SetWorkDir(Directory.Exists(auto) ? auto : FindExistingWorkspace(baseName, target) ?? auto);
+    }
+
+    /// <summary>
+    /// 접미사가 다른 기존 작업 폴더(예: 예전에 -windows로 만든 Unity 게임 폴더) 중 같은 대상을 다루던 폴더를 찾습니다.
+    /// </summary>
+    private static string? FindExistingWorkspace(string baseName, string target)
+    {
+        if (string.IsNullOrWhiteSpace(target) || !Directory.Exists(ReposRoot)) return null;
+
+        try
+        {
+            foreach (var dir in Directory.EnumerateDirectories(ReposRoot, baseName + "-*"))
+            {
+                var meta = WorkspaceInspector.LoadMetadata(dir);
+                if (meta != null)
+                {
+                    if (SamePath(meta.TargetPath, target)) return dir;
+                    continue;
+                }
+
+                // v1.3 이전 버전이 남긴 프롬프트 파일
+                foreach (var legacy in new[] { "claude_prompt.md", "antigravity_prompt.md" })
+                {
+                    var file = Path.Combine(dir, legacy);
+                    if (File.Exists(file) && File.ReadAllText(file).Contains(target, StringComparison.OrdinalIgnoreCase))
+                        return dir;
+                }
+            }
+        }
+        catch { }
+
+        return null;
+    }
+
+    private static string DescribeWorkspace(WorkspaceState ws)
+    {
+        if (!ws.Exists) return "🆕 새 작업 폴더 — 프롬프트 전송 시 생성되고, 에이전트가 PROGRESS.md로 진행 상황을 기록합니다.";
+        if (!ws.HasContent) return "📂 빈 작업 폴더 — 여기서 새로 시작합니다.";
+
+        var progress = ws.ProgressFile != null ? $", {Path.GetFileName(ws.ProgressFile)} 있음" : ", PROGRESS.md 없음";
+        var summary = $"♻️ 기존 작업 폴더 (항목 {ws.TotalEntries}개{progress}) — '이어서 진행' 프롬프트로 생성됩니다.";
+        if (ws.TargetDiffers) summary += " ⚠️ 다른 대상 파일로 만든 폴더입니다.";
+        else if (ws.TargetChanged) summary += " ⚠️ 이전 작업 이후 대상 파일이 바뀌었습니다.";
+        return summary;
+    }
+
+    // ───────────────────────── 환경 점검 ─────────────────────────
+
+    [RelayCommand(CanExecute = nameof(CanCheckEnvironment))]
+    public async Task CheckEnvironmentAsync()
+    {
+        IsCheckingEnvironment = true;
+        EnvironmentSummary = "🔍 도구 · 플러그인 · 시스템 설정을 점검하는 중...";
+        try
+        {
+            var results = await EnvironmentChecker.RunAsync(_detection);
+            EnvironmentChecks.Clear();
+            foreach (var r in results) EnvironmentChecks.Add(r);
+
+            UpdateEnvironmentSummary();
+            RegeneratePrompt(onlyIfUnmodified: true); // 새로 설치된 도구 경로 반영
+        }
+        catch (Exception ex)
+        {
+            EnvironmentSummary = $"환경 점검 중 오류: {ex.Message}";
+        }
+        finally
+        {
+            IsCheckingEnvironment = false;
+        }
+    }
+
+    private bool CanCheckEnvironment() => !IsCheckingEnvironment;
+
+    private void UpdateEnvironmentSummary()
+    {
+        if (EnvironmentChecks.Count == 0) return;
+
+        var ok = EnvironmentChecks.Count(c => c.Status == CheckStatus.Ok);
+        var warn = EnvironmentChecks.Count(c => c.Status == CheckStatus.Warning);
+        var missing = EnvironmentChecks.Count(c => c.Status == CheckStatus.Missing);
+
+        var tools = ToolLocator.LocateAll();
+        var missingForTarget = _profile.RequiredTools.Select(id => tools[id]).Where(t => !t.Found).Select(t => t.DisplayName).ToList();
+        var targetPart = missingForTarget.Count == 0
+            ? $"[{_profile.ShortName}]에 필요한 도구 모두 준비됨"
+            : $"[{_profile.ShortName}]에 필요한 도구 누락: {string.Join(", ", missingForTarget)}";
+
+        EnvironmentSummary = $"✅ {ok}  ⚠️ {warn}  ❌ {missing}  ·  {targetPart}";
+    }
+
+    private void ReplaceGameChecks(DetectionResult detection)
+    {
+        for (var i = EnvironmentChecks.Count - 1; i >= 0; i--)
+        {
+            if (EnvironmentChecks[i].Group == EnvironmentChecker.GroupGame) EnvironmentChecks.RemoveAt(i);
+        }
+
+        if (EnvironmentChecks.Count == 0) return; // 아직 점검 전이면 점검 완료 시 함께 표시됨
+        foreach (var c in EnvironmentChecker.GameChecks(detection)) EnvironmentChecks.Add(c);
+        UpdateEnvironmentSummary();
+    }
+
+    [RelayCommand]
+    public void RunToolDownloader() => RunBat("download_analysis_tools.bat");
+
+    [RelayCommand]
+    public void RunEmulatorCheck() => RunBat("check_android_emulator_env.bat");
+
+    [RelayCommand]
+    public void RunReaSetup() => RunBat("setup_rea_workflows.bat");
+
+    private void RunBat(string fileName)
+    {
+        var path = ToolLocator.BatPath(fileName);
+        if (path == null || !File.Exists(path))
+        {
+            StatusMessage = $"{fileName}을(를) 찾을 수 없습니다. (저장소의 bat 폴더 확인)";
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(path)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(path)!
+            });
+            StatusMessage = $"{fileName} 실행 — 끝나면 '환경 점검'을 다시 눌러 결과를 갱신하세요.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"{fileName} 실행 실패: {ex.Message}";
+        }
+    }
+
+    // ───────────────────────── 프롬프트 편집 / 전송 ─────────────────────────
+
     [RelayCommand]
     public void ClearPrompt()
     {
@@ -291,9 +459,6 @@ $@"# [APP / Electron 디컴파일 및 소스 추출/실행 워크플로우 요�
         StatusMessage = "프롬프트 입력창이 초기화되었습니다.";
     }
 
-    /// <summary>
-    /// 프롬프트 클립보드 복사
-    /// </summary>
     [RelayCommand]
     public async Task CopyPromptAsync()
     {
@@ -303,52 +468,18 @@ $@"# [APP / Electron 디컴파일 및 소스 추출/실행 워크플로우 요�
             return;
         }
 
-        try
-        {
-            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
-                desktop.MainWindow?.Clipboard != null)
-            {
-                await desktop.MainWindow.Clipboard.SetTextAsync(PromptText);
-                StatusMessage = "프롬프트가 클립보드에 복사되었습니다! (에이전트에 바로 붙여넣기 가능)";
-                return;
-            }
-        }
-        catch { }
-
-        if (OperatingSystem.IsWindows())
-        {
-            try
-            {
-                var psi = new ProcessStartInfo("cmd", "/c clip")
-                {
-                    RedirectStandardInput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                using var proc = Process.Start(psi);
-                if (proc != null)
-                {
-                    await proc.StandardInput.WriteAsync(PromptText);
-                    proc.StandardInput.Close();
-                    await proc.WaitForExitAsync();
-                    StatusMessage = "프롬프트가 클립보드에 복사되었습니다 (Windows clip).";
-                    return;
-                }
-            }
-            catch { }
-        }
-
-        StatusMessage = "클립보드 복사 완료";
+        StatusMessage = await ClipboardService.SetTextAsync(PromptText)
+            ? "프롬프트가 클립보드에 복사되었습니다! (에이전트에 바로 붙여넣기 가능)"
+            : "클립보드 복사에 실패했습니다.";
     }
 
-    /// <summary>
-    /// Claude 앱으로 프롬프트 실연동 전송
-    /// 1) 작업 폴더에 prompt.md 저장
-    /// 2) 클립보드에 프롬프트 복사
-    /// 3) 열려있는 Claude 앱 창을 활성화하여 자동으로 붙여넣기(Ctrl+V) 및 전송(Enter) 실행
-    /// </summary>
     [RelayCommand]
-    public async Task SendToClaudeAsync()
+    public Task SendToClaudeAsync() => SendToAgentAsync(AgentApps.Claude);
+
+    [RelayCommand]
+    public Task SendToAntigravityAsync() => SendToAgentAsync(AgentApps.Antigravity);
+
+    private async Task SendToAgentAsync(AgentApp app)
     {
         if (string.IsNullOrWhiteSpace(PromptText))
         {
@@ -358,145 +489,61 @@ $@"# [APP / Electron 디컴파일 및 소스 추출/실행 워크플로우 요�
 
         try
         {
-            // 1. 작업 폴더 생성 및 프롬프트 파일 저장
-            if (!string.IsNullOrWhiteSpace(WorkDirPath))
-            {
-                Directory.CreateDirectory(WorkDirPath);
-                var promptFile = Path.Combine(WorkDirPath, "claude_prompt.md");
-                await File.WriteAllTextAsync(promptFile, PromptText);
-            }
-
-            // 2. 클립보드에 복사
-            await CopyPromptAsync();
-
-            // 3. 열려있는 Claude 창 검색
-            var claudeHwnd = WindowsAutomation.FindOpenWindow("claude", "Claude");
-
-            if (claudeHwnd != IntPtr.Zero)
-            {
-                // 열려있는 창으로 포커스하여 자동 붙여넣기 및 엔터 전송
-                await WindowsAutomation.SendPromptToWindowAsync(claudeHwnd);
-                StatusMessage = "🚀 열려있는 Claude 앱으로 프롬프트를 자동 전송(붙여넣기+엔터)했습니다!";
-            }
-            else
-            {
-                // 앱이 아직 안 켜져있으면 실행 후 전송 시도
-                var claudeDesktopPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    @"Microsoft\WindowsApps\claude-desktop.exe");
-
-                if (File.Exists(claudeDesktopPath))
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = claudeDesktopPath,
-                        UseShellExecute = true
-                    });
-                    await Task.Delay(2000);
-                    claudeHwnd = WindowsAutomation.FindOpenWindow("claude", "Claude");
-                    if (claudeHwnd != IntPtr.Zero)
-                    {
-                        await WindowsAutomation.SendPromptToWindowAsync(claudeHwnd);
-                        StatusMessage = "🚀 Claude 앱을 실행하고 프롬프트를 자동 전송했습니다!";
-                        return;
-                    }
-                }
-
-                StatusMessage = "📋 클립보드에 프롬프트가 복사되었습니다. (Claude 앱을 켜고 붙여넣으세요)";
-            }
+            StatusMessage = await AgentLauncher.SendAsync(app, PromptText, WorkDirPath, CleanPath(TargetFilePath), _profile.Kind);
+            WorkspaceSummary = DescribeWorkspace(WorkspaceInspector.Inspect(WorkDirPath, CleanPath(TargetFilePath)));
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Claude 연동 오류: {ex.Message}";
+            StatusMessage = $"{app.DisplayName} 연동 오류: {ex.Message}";
         }
     }
 
-    /// <summary>
-    /// Antigravity로 프롬프트 실연동 전송
-    /// 1) 작업 폴더에 antigravity_prompt.md 저장
-    /// 2) 클립보드에 프롬프트 복사
-    /// 3) 열려있는 Antigravity 창을 활성화하여 자동으로 붙여넣기(Ctrl+V) 및 전송(Enter) 실행
-    /// </summary>
-    [RelayCommand]
-    public async Task SendToAntigravityAsync()
-    {
-        if (string.IsNullOrWhiteSpace(PromptText))
-        {
-            StatusMessage = "전송할 프롬프트 내용이 비어 있습니다.";
-            return;
-        }
+    // ───────────────────────── 헬퍼 ─────────────────────────
 
+    private static Window? MainWindow =>
+        Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
+            ? desktop.MainWindow
+            : null;
+
+    private void SetTarget(string path)
+    {
+        _settingTarget = true;
+        TargetFilePath = path;
+        _settingTarget = false;
+    }
+
+    private void SetWorkDir(string path)
+    {
+        _settingWorkDir = true;
+        WorkDirPath = path;
+        _settingWorkDir = false;
+    }
+
+    private static string CleanPath(string? path) => (path ?? "").Trim().Trim('"');
+
+    private static bool SamePath(string a, string b)
+    {
         try
         {
-            // 1. 작업 폴더 생성 및 프롬프트 파일 저장
-            if (!string.IsNullOrWhiteSpace(WorkDirPath))
-            {
-                Directory.CreateDirectory(WorkDirPath);
-                var promptFile = Path.Combine(WorkDirPath, "antigravity_prompt.md");
-                await File.WriteAllTextAsync(promptFile, PromptText);
-            }
-
-            // 2. 클립보드에 복사
-            await CopyPromptAsync();
-
-            // 3. 열려있는 Antigravity 창 검색
-            var agyHwnd = WindowsAutomation.FindOpenWindow("Antigravity", "Antigravity");
-
-            if (agyHwnd != IntPtr.Zero)
-            {
-                // 열려있는 창으로 포커스하여 자동 붙여넣기 및 엔터 전송
-                await WindowsAutomation.SendPromptToWindowAsync(agyHwnd);
-                StatusMessage = "🌌 열려있는 Antigravity로 프롬프트를 자동 전송(붙여넣기+엔터)했습니다!";
-            }
-            else
-            {
-                // 앱이 아직 안 켜져있으면 실행
-                var agyAppPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    @"Programs\Antigravity\Antigravity.exe");
-
-                if (File.Exists(agyAppPath))
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = agyAppPath,
-                        Arguments = !string.IsNullOrWhiteSpace(WorkDirPath) ? $"\"{WorkDirPath}\"" : "",
-                        UseShellExecute = true
-                    });
-                    await Task.Delay(2000);
-                    agyHwnd = WindowsAutomation.FindOpenWindow("Antigravity", "Antigravity");
-                    if (agyHwnd != IntPtr.Zero)
-                    {
-                        await WindowsAutomation.SendPromptToWindowAsync(agyHwnd);
-                        StatusMessage = "🌌 Antigravity를 실행하고 프롬프트를 자동 전송했습니다!";
-                        return;
-                    }
-                }
-
-                StatusMessage = "📋 클립보드에 프롬프트가 복사되었습니다. (Antigravity에서 붙여넣으세요)";
-            }
+            return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
         }
-        catch (Exception ex)
+        catch
         {
-            StatusMessage = $"Antigravity 연동 오류: {ex.Message}";
+            return false;
         }
     }
 
-    private static void OpenUrl(string url)
+    private static void OpenShell(string target)
     {
         try
         {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = url,
-                UseShellExecute = true
-            });
+            Process.Start(new ProcessStartInfo { FileName = target, UseShellExecute = true });
         }
         catch
         {
             if (OperatingSystem.IsWindows())
             {
-                Process.Start(new ProcessStartInfo("cmd", $"/c start {url.Replace("&", "^&")}") { CreateNoWindow = true });
+                Process.Start(new ProcessStartInfo("cmd", $"/c start \"\" \"{target.Replace("&", "^&")}\"") { CreateNoWindow = true });
             }
         }
     }

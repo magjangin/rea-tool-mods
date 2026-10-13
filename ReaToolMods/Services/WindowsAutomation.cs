@@ -68,10 +68,11 @@ public static class WindowsAutomation
             string title = sb.ToString();
 
             GetWindowThreadProcessId(hWnd, out uint pid);
+            if (pid == Environment.ProcessId) return true; // 이 앱 자신의 창은 제외
 
             try
             {
-                var proc = Process.GetProcessById((int)pid);
+                using var proc = Process.GetProcessById((int)pid);
                 bool matchProc = !string.IsNullOrEmpty(processNameKeyword) &&
                                  proc.ProcessName.Contains(processNameKeyword, StringComparison.OrdinalIgnoreCase);
                 bool matchTitle = !string.IsNullOrEmpty(windowTitleKeyword) &&
