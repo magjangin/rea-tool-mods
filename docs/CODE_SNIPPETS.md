@@ -14,7 +14,8 @@
 9. [사용자가 고친 프롬프트 보호 — `RegeneratePrompt`](#9-사용자가-고친-프롬프트-보호--regenerateprompt)
 10. [CPU 가상화(VT) 점검 — `VirtualizationCheck`](#10-cpu-가상화vt-점검--virtualizationcheck)
 11. [외부 도구 버전 확인 (타임아웃) — `RunAsync`](#11-외부-도구-버전-확인-타임아웃--runasync)
-12. [배치 스크립트 요령](#12-배치-스크립트-요령)
+12. [배치 스크립트 (bat · ps1) 코드 스니펫](#12-배치-스크립트-bat--ps1-코드-스니펫)
+13. [프롬프트 테스트](#13-프롬프트-테스트)
 
 ---
 
@@ -354,21 +355,67 @@ catch (OperationCanceledException)
 
 ---
 
-## 12. 배치 스크립트 요령
+## 12. 배치 스크립트 (bat · ps1) 코드 스니펫
 
-### `if (...)` 블록 안에서 파일 쓰기 — `download_analysis_tools.bat`
-블록 안에 `::` 주석과 `( ... ) > file` 블록이 함께 있으면 cmd가 리다이렉트를 블록 전체에 적용해, 다운로드 로그까지 `apktool.bat`에 섞여 들어가는 버그가 있었습니다. 블록 밖에서 한 줄씩 쓰도록 바꿨습니다.
+`bat/` 폴더 스크립트의 핵심 패턴입니다. 출력은 일부러 영어(ASCII)로 썼습니다 — 한글 Windows 콘솔(cp949)에서 UTF-8 bat의 한글이 깨지는 문제를 피하기 위해서입니다.
+
+| 스크립트 | 하는 일 |
+|---|---|
+| `download_analysis_tools.bat` | ilspycmd · asar · JADX · Apktool · Il2CppDumper · Cpp2IL 설치 → `tools/` |
+| `check_android_emulator_env.bat` → `.ps1` | VT · Hyper-V 계열 기능 · 녹스 · ADB · 기기 ABI 점검 (종료 코드 0/1/2) |
+| `setup_rea_workflows.bat` | REA 스킬 복사 + `rea setup` 비대화식 실행 |
+| `run_tool.bat` | `dotnet run`으로 앱 실행 |
+
+### 12.1 GitHub 최신 릴리스 자산 받기 — `download_analysis_tools.bat`
+모든 도구 다운로드가 같은 틀입니다: 이미 있으면 건너뛰고, 없으면 GitHub API로 최신 릴리스의 자산 이름을 패턴으로 골라 받습니다. 버전 번호를 하드코딩하지 않으므로 새 버전이 나와도 스크립트를 고칠 필요가 없습니다.
 
 ```bat
-rem Write the apktool.bat wrapper outside the if-block
-if exist "%APKTOOL_DIR%\apktool.jar" (
-    > "%APKTOOL_DIR%\apktool.bat" echo @echo off
-    >> "%APKTOOL_DIR%\apktool.bat" echo java -jar "%%~dp0apktool.jar" %%*
+set "JADX_DIR=%TOOLS_DIR%\jadx"
+if exist "%JADX_DIR%\bin\jadx.bat" (
+    echo  - JADX is already installed: %JADX_DIR%
+) else (
+    echo  - Downloading latest JADX release zip from GitHub...
+    if not exist "%JADX_DIR%" mkdir "%JADX_DIR%"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "$ProgressPreference = 'SilentlyContinue';" ^
+        "$release = Invoke-RestMethod -Uri 'https://api.github.com/repos/skylot/jadx/releases/latest';" ^
+        "$asset = $release.assets | Where-Object { $_.name -like 'jadx-*.zip' -and $_.name -notlike '*gui*' } | Select-Object -First 1;" ^
+        "if (-not $asset) { $asset = $release.assets | Where-Object { $_.name -like 'jadx-*.zip' } | Select-Object -First 1; }" ^
+        "if ($asset) { Write-Host '  Downloading:' $asset.name; Invoke-WebRequest -Uri $asset.browser_download_url -OutFile '%TOOLS_DIR%\jadx.zip'; Expand-Archive -Path '%TOOLS_DIR%\jadx.zip' -DestinationPath '%JADX_DIR%' -Force; Remove-Item '%TOOLS_DIR%\jadx.zip' -Force; Write-Host '  JADX installed successfully.'; } else { Write-Host '  Could not find JADX release asset.'; }"
 )
 ```
 
-### cmd 따옴표 안에서 PowerShell에 `"` 넘기기
-`-Command "..."` 안에서 `\"`를 쓰면 cmd의 따옴표 상태가 뒤집혀 `|` 같은 문자가 cmd에 해석됩니다. `[char]34`로 만들어 씁니다. Il2CppDumper가 덤프 후 키 입력을 기다리지 않도록 `config.json`을 고치는 부분입니다.
+포인트:
+- `$ProgressPreference = 'SilentlyContinue'` — PowerShell 5.1의 진행 표시줄 때문에 `Invoke-WebRequest`가 몇 배 느려지는 것을 막습니다.
+- 각 줄은 `"...;" ^`로 끝냅니다. 한 줄 전체가 cmd 따옴표 안에 있으므로 `|`, `{ }`가 cmd에 해석되지 않습니다.
+- PowerShell 안의 문자열은 작은따옴표(`'...'`)만 씁니다. 큰따옴표가 필요하면 12.3의 `[char]34`를 씁니다.
+
+도구별 자산 패턴:
+
+| 도구 | 저장소 | 자산 패턴 | 설치 위치 |
+|---|---|---|---|
+| JADX | `skylot/jadx` | `jadx-*.zip` (gui 제외) | `tools\jadx\bin\jadx.bat` |
+| Apktool | `iBotPeaches/Apktool` | `apktool_*.jar` | `tools\apktool\apktool.jar` + `apktool.bat` |
+| Il2CppDumper | `Perfare/Il2CppDumper` | `Il2CppDumper-win-*.zip` (.NET Framework 빌드, 별도 런타임 불필요) | `tools\il2cppdumper\Il2CppDumper.exe` |
+| Cpp2IL | `SamboyCoding/Cpp2IL` | `Cpp2IL-*-Windows.exe` (단일 exe) | `tools\cpp2il\Cpp2IL.exe` |
+
+### 12.2 전역 도구: 업데이트 먼저, 실패하면 설치 — ilspycmd
+`dotnet tool update -g`는 설치되어 있지 않으면 실패하므로, 그때만 `install`을 실행합니다. npm 전역 도구는 `.cmd` 셔임이라 `call`을 붙여야 bat이 중간에 끝나지 않습니다.
+
+```bat
+dotnet tool update -g ilspycmd > nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    echo  - ilspycmd ready: installed or updated globally.
+) else (
+    echo  - Installing ilspycmd globally: dotnet tool install -g ilspycmd
+    dotnet tool install -g ilspycmd
+)
+
+call npm install -g @electron/asar --silent > nul 2>&1
+```
+
+### 12.3 cmd 따옴표 안에서 PowerShell에 `"` 넘기기 — Il2CppDumper 비대화식 설정
+Il2CppDumper는 기본값(`RequireAnyKey: true`)이면 덤프 후 키 입력을 기다려 에이전트 실행이 멈춥니다. `config.json`을 고쳐야 하는데, `-Command "..."` 안에서 `\"`를 쓰면 cmd의 따옴표 상태가 뒤집혀 `|`가 cmd에 해석됩니다. 그래서 `[char]34`로 큰따옴표를 만듭니다. BOM 없이 쓰려고 `Set-Content` 대신 `[IO.File]::WriteAllText`를 씁니다.
 
 ```bat
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -380,13 +427,201 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "}"
 ```
 
-### 긴 점검 로직은 `.bat` + `.ps1`로 분리
-`check_android_emulator_env.bat`은 `.ps1`을 호출만 합니다. 여러 줄 PowerShell을 `^`로 이어 붙이는 것보다 안전하고, 종료 코드(0 준비됨 / 1 문제 / 2 경고)를 그대로 전달합니다.
+이 블록은 설치 여부와 상관없이 항상 실행되므로, 예전에 받은 Il2CppDumper에도 적용됩니다.
+
+### 12.4 단일 exe 받기 — Cpp2IL
+zip이 아닌 실행 파일 하나만 받는 경우입니다. `try { } catch { }`로 감싸 GitHub API 제한(시간당 60회)에 걸려도 스크립트가 멈추지 않게 합니다.
 
 ```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$ProgressPreference = 'SilentlyContinue';" ^
+    "try {" ^
+    "  $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/SamboyCoding/Cpp2IL/releases/latest';" ^
+    "  $exe = $rel.assets | Where-Object { $_.name -like 'Cpp2IL-*-Windows.exe' } | Select-Object -First 1;" ^
+    "  if ($exe) { Write-Host '  Downloading:' $exe.name; Invoke-WebRequest -Uri $exe.browser_download_url -OutFile '%CPP2IL_DIR%\Cpp2IL.exe'; Write-Host '  Cpp2IL installed successfully.'; } else { Write-Host '  Could not find Cpp2IL release asset.'; }" ^
+    "} catch { Write-Host '  Failed to download Cpp2IL. Check network or GitHub API limits.' }"
+```
+
+### 12.5 `if (...)` 블록 안에서 파일 쓰기 — apktool.bat 래퍼 버그 수정
+예전 코드는 `else ( ... )` 블록 안에 `::` 주석과 `( echo ... ) > apktool.bat` 블록이 함께 있었습니다. cmd가 리다이렉트를 블록 전체에 적용해서, **다운로드 로그 3줄이 `apktool.bat` 맨 위에 섞여 들어갔습니다** (실행할 때마다 `'-' is not recognized` 오류 출력).
+
+```bat
+:: ❌ 이전 — else 블록 안
+    :: Generate apktool.bat wrapper
+    (
+        echo @echo off
+        echo java -jar "%%~dp0apktool.jar" %%*
+    ) > "%APKTOOL_DIR%\apktool.bat"
+)
+```
+
+```bat
+:: ✅ 현재 — 블록 밖에서, 한 줄씩 리다이렉트 (jar가 있으면 매번 다시 써서 깨진 래퍼도 복구)
+)
+rem Write the apktool.bat wrapper outside the if-block: a "::" comment plus a nested
+rem redirected block inside it made cmd redirect the whole block (download log included).
+if exist "%APKTOOL_DIR%\apktool.jar" (
+    > "%APKTOOL_DIR%\apktool.bat" echo @echo off
+    >> "%APKTOOL_DIR%\apktool.bat" echo java -jar "%%~dp0apktool.jar" %%*
+)
+```
+
+- 괄호 블록 안에서는 `::` 대신 `rem`을 씁니다 (`::`는 실제로는 레이블이라 블록 안에서 파싱이 꼬일 수 있음).
+- 생성되는 파일에 `%~dp0`를 남기려면 `%%~dp0`처럼 `%`를 두 번 씁니다.
+
+### 12.6 `.bat`은 `.ps1`을 부르기만 — `check_android_emulator_env.bat`
+점검 로직이 길면 `^`로 이어 붙인 PowerShell보다 `.ps1` 파일이 안전하고 읽기 쉽습니다. `.bat`은 실행 정책 우회와 종료 코드 전달만 합니다.
+
+```bat
+@echo off
+setlocal
+
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0check_android_emulator_env.ps1" %*
 set "RESULT=%ERRORLEVEL%"
+
 echo.
 pause
 exit /b %RESULT%
 ```
+
+- `-ExecutionPolicy Bypass`는 이 프로세스에만 적용되고 시스템 설정은 바꾸지 않습니다.
+- `%*`로 인자를 넘깁니다 (예: `check_android_emulator_env.bat -Ports 62001,62025`).
+- `pause` 전에 `ERRORLEVEL`을 저장해 둬야 합니다 (`echo`/`pause`가 값을 덮어쓸 수 있음).
+
+### 12.7 ps1: 결과 출력 헬퍼와 종료 코드
+`[ OK ] / [WARN] / [FAIL]` 형식을 통일하고 경고·실패 수를 세어 마지막에 종료 코드로 돌려줍니다.
+
+```powershell
+$ErrorActionPreference = 'SilentlyContinue'
+$script:fail = 0
+$script:warn = 0
+
+function Ok($msg)   { Write-Host "  [ OK ] $msg" -ForegroundColor Green }
+function Warn($msg) { Write-Host "  [WARN] $msg" -ForegroundColor Yellow; $script:warn++ }
+function Fail($msg) { Write-Host "  [FAIL] $msg" -ForegroundColor Red; $script:fail++ }
+function Info($msg) { Write-Host "         $msg" -ForegroundColor Gray }
+
+# ... 점검 ...
+
+if ($script:fail -gt 0) { $code = 1 }       # 막히는 문제
+elseif ($script:warn -gt 0) { $code = 2 }   # 쓸 수는 있지만 경고
+else { $code = 0 }                          # 준비됨
+exit $code
+```
+
+### 12.8 ps1: VT 판별은 하이퍼바이저부터
+Hyper-V 계열(WSL2, 메모리 무결성 등)이 켜져 있으면 Windows는 `VirtualizationFirmwareEnabled`를 `False`로 보고합니다. 이 값만 보면 "BIOS에서 VT가 꺼져 있다"고 오진하므로 `HypervisorPresent`를 먼저 확인합니다. CIM 값은 언어와 무관해서 한글 Windows의 `systeminfo` 출력을 파싱하는 것보다 안전합니다.
+
+```powershell
+$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+$cs = Get-CimInstance Win32_ComputerSystem
+
+if ($cs.HypervisorPresent) {
+    # Windows does not report VirtualizationFirmwareEnabled while a hypervisor owns VT,
+    # but a running hypervisor proves VT is enabled in firmware.
+    Ok "VT is enabled in BIOS/UEFI (a Windows hypervisor is already running)."
+    Warn "VT is currently owned by the Hyper-V platform (see step 2)."
+} elseif ($cpu.VirtualizationFirmwareEnabled) {
+    Ok "VT is enabled in BIOS/UEFI and free for Nox."
+} else {
+    Fail "VT is DISABLED in BIOS/UEFI."
+}
+```
+
+앱의 `EnvironmentChecker.VirtualizationCheck()`(10번 항목)도 같은 순서로 판단합니다.
+
+### 12.9 ps1: Hyper-V 계열 기능을 한 번에 조회
+`Win32_OptionalFeature`는 전체를 열거하면 느리므로 `-Filter`에 `OR`로 묶어 한 번만 조회합니다. 메모리 무결성(VBS)은 선택적 기능이 아니라 DeviceGuard에서 따로 확인합니다.
+
+```powershell
+$featureNames = @{
+    'Microsoft-Hyper-V-Hypervisor'  = 'Hyper-V'
+    'VirtualMachinePlatform'        = 'Virtual Machine Platform (WSL2)'
+    'HypervisorPlatform'            = 'Windows Hypervisor Platform'
+    'Containers-DisposableClientVM' = 'Windows Sandbox'
+}
+$filter = ($featureNames.Keys | ForEach-Object { "Name='$_'" }) -join ' OR '
+$enabled = @(Get-CimInstance Win32_OptionalFeature -Filter $filter | Where-Object { $_.InstallState -eq 1 })
+
+$dg = Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard
+$vbsOn = $dg -and $dg.VirtualizationBasedSecurityStatus -eq 2   # 2 = 실행 중
+```
+
+### 12.10 ps1: 녹스 설치 경로 찾기
+녹스는 PATH에 등록되지 않으므로 설치 프로그램 목록(Uninstall 레지스트리)에서 `InstallLocation` → `DisplayIcon` → `UninstallString` 순으로 후보를 모으고, 기본 경로도 후보에 넣은 뒤 `Nox.exe` 또는 `nox_adb.exe`가 있는 폴더를 고릅니다. 앱의 `ToolLocator.FindNoxBinDir()`도 같은 방식입니다.
+
+```powershell
+$uninstallKeys = @(
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+)
+$candidates = @()
+foreach ($e in (Get-ItemProperty $uninstallKeys | Where-Object { $_.DisplayName -like '*Nox*' })) {
+    if ($e.InstallLocation) { $candidates += $e.InstallLocation.Trim('"') }
+    if ($e.DisplayIcon) { $candidates += (Split-Path ($e.DisplayIcon.Split(',')[0].Trim('"'))) }
+    if ($e.UninstallString) { $candidates += (Split-Path ($e.UninstallString.Trim('"') -replace '(?i)(\.exe).*$', '$1')) }
+}
+$candidates += @("$env:ProgramFiles\Nox", "${env:ProgramFiles(x86)}\Nox", 'D:\Program Files\Nox', 'D:\Program Files (x86)\Nox')
+
+foreach ($c in $candidates) {
+    foreach ($d in @($c, (Join-Path $c 'bin'))) {
+        if ((Test-Path (Join-Path $d 'Nox.exe')) -or (Test-Path (Join-Path $d 'nox_adb.exe'))) { $noxBin = $d; break }
+    }
+    if ($noxBin) { break }
+}
+```
+
+### 12.11 ps1: ADB 연결과 기기 목록 파싱
+녹스가 실행 중일 때만 포트에 연결합니다 (첫 인스턴스 62001, 다중 인스턴스 62025부터). `adb devices` 출력은 `<serial>\t<state>` 형식이라 탭으로 나눕니다. PowerShell에서 탭은 `` `t ``입니다.
+
+```powershell
+if ($noxRunning) {
+    foreach ($p in $Ports) { & $adb connect "127.0.0.1:$p" 2>&1 | Out-Null }
+}
+
+$devices = @(& $adb devices 2>$null |
+    Select-Object -Skip 1 |
+    Where-Object { $_ -match "`tdevice$" } |          # offline / unauthorized 제외
+    ForEach-Object { ($_ -split "`t")[0] })
+
+foreach ($d in $devices) {
+    $abis = (& $adb -s $d shell getprop ro.product.cpu.abilist 2>$null | Out-String).Trim()
+    if ($abis -notmatch 'arm') {   # ARM 전용 Unity 빌드는 설치되지 않을 수 있음
+        Warn "This instance reports no ARM ABI; ARM-only Unity builds (lib/arm64-v8a/libil2cpp.so) may not install."
+    }
+}
+```
+
+- `@( ... )`로 감싸야 결과가 1개일 때도 배열이 되어 `.Count`가 맞습니다.
+- 녹스의 `nox_adb.exe`를 우선 사용합니다. PATH의 `adb`와 버전이 다르면 서로 adb 서버를 재시작해 연결이 끊깁니다.
+
+### 12.12 비대화식 실행 — `setup_rea_workflows.bat`
+`xcopy`는 대상이 파일인지 폴더인지 묻는 프롬프트에서 멈출 수 있어 PowerShell `Copy-Item`을 쓰고, `rea setup`은 플래그로 대화형 선택을 건너뜁니다.
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "try { Copy-Item -Path '%REA_SOURCE%\.agents\skills\*' -Destination '%TARGET_SKILLS%' -Recurse -Force; Write-Host '  - Successfully copied REA workflow skills.' } catch { Write-Host '  - Warning: Failed to copy skills:' $_ }"
+
+where rea >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    call npm install -g rea-agents
+)
+call rea setup --all-detected --yes
+```
+
+### 12.13 새 bat을 만들 때 체크리스트
+- [ ] 줄바꿈은 **CRLF** (LF만 있으면 `goto`/레이블이 오동작할 수 있음)
+- [ ] 출력 메시지는 ASCII(영어) — 한글이 필요하면 `.ps1`을 **UTF-8 BOM**으로 저장해 그쪽에서 출력
+- [ ] 경로는 `%~dp0` 기준 (`%~dp0..\tools`) — 어느 폴더에서 실행해도 동작
+- [ ] `setlocal`로 변수 범위 제한, 끝에 `pause` + `exit /b <코드>`
+- [ ] npm 전역 도구(`.cmd`)는 `call`로 호출
+- [ ] 괄호 블록 안에서는 `::` 대신 `rem`, 리다이렉트는 줄 단위
+- [ ] 대화형 프롬프트가 있는 도구는 플래그나 설정으로 끄기 (`--yes`, `RequireAnyKey: false`, `--disable-registration-prompts`)
+- [ ] 다운로드는 "이미 있으면 건너뛰기" + `try/catch` (GitHub API 제한 대비)
+
+---
+
+## 13. 프롬프트 테스트
+
+생성된 프롬프트의 명령이 실제 도구에서 동작하는지 검증한 결과와, 테스트에서 발견해 고친 버그는 [PROMPT_TEST.md](PROMPT_TEST.md)에 정리했습니다.

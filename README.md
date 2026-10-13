@@ -67,6 +67,7 @@ Win32 창 제어(`WindowsAutomation`)로 현재 열린 앱을 찾아 `Ctrl + V` 
 - `check_android_emulator_env.bat`: **CPU 가상화(VT) · Hyper-V 계열 기능 · 녹스 설치/실행 · ADB 연결 · 기기 ABI** 점검 (종료 코드 0=준비됨, 1=문제, 2=경고)
 - `setup_rea_workflows.bat`: [morluto/rea](https://github.com/morluto/rea) 워크플로우 스킬 동기화 및 MCP 에이전트 연동
 - `run_tool.bat`: Avalonia UI 앱 원클릭 실행기
+- `run_prompt_tests.bat`: 8종 타겟 × 작업 폴더 상태별 프롬프트 생성 검증 + 프롬프트 속 명령을 실제 도구로 실행 ([결과](docs/PROMPT_TEST.md))
 
 ---
 
@@ -77,13 +78,15 @@ rea-tool-mods/
 ├── ReaToolMods.slnx                      # 루트 솔루션 파일 (.NET 10)
 ├── README.md
 ├── docs/
-│   └── CODE_SNIPPETS.md                  # 핵심 코드 스니펫 (판별 · 이어하기 · 환경 점검 · bat 요령)
+│   ├── CODE_SNIPPETS.md                  # 핵심 코드 스니펫 (C# · bat · ps1)
+│   └── PROMPT_TEST.md                    # 프롬프트 테스트 결과 · 발견한 버그 · 샘플 프롬프트
 │
 ├── bat/
 │   ├── download_analysis_tools.bat       # 분석 도구 자동 다운로더 (Unity IL2CPP 도구 포함)
 │   ├── check_android_emulator_env.bat    # VT · 녹스 · ADB 점검 (→ .ps1 실행)
 │   ├── check_android_emulator_env.ps1
 │   ├── setup_rea_workflows.bat           # REA 워크플로우 동기화 & MCP 에이전트 설정
+│   ├── run_prompt_tests.bat              # 프롬프트 테스트 실행
 │   └── run_tool.bat                      # 앱 원클릭 실행 런처
 │
 ├── ReaToolMods/                          # Avalonia MVVM 프로젝트
@@ -105,6 +108,8 @@ rea-tool-mods/
 │   │   └── TargetButtonViewModel.cs
 │   └── Views/
 │       └── MainWindow.axaml
+│
+├── tests/PromptTests/                    # 프롬프트 생성 · 명령 실행 · ViewModel 흐름 테스트 (콘솔)
 │
 └── .agents/skills/                       # REA 에이전트 분석 스킬
 ```

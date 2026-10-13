@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using ReaToolMods.Models;
 
 namespace ReaToolMods.Services;
@@ -224,7 +225,7 @@ public static class PromptBuilder
         var asar = Matching(ctx)?.AsarPath ?? Target(ctx);
         return $"""
             1. ASAR 언팩
-               `npx @electron/asar extract "{asar}" "{w}\extracted"`
+               `{Tool(ctx, ToolId.Asar)} extract "{asar}" "{w}\extracted"`
                - 옆에 app.asar.unpacked 폴더가 있으면 '{w}\extracted'에 함께 복사해줘.
             2. 구조 분석
                - main / preload / renderer 진입점, IPC 채널 목록, 사용 중인 네이티브 모듈을 '{w}\docs\analysis.md'에 정리해줘.
@@ -247,8 +248,8 @@ public static class PromptBuilder
             1. IL2CPP 메타데이터 덤프{version}
                `{Tool(ctx, ToolId.Il2CppDumper)} "{gameAssembly}" "{metadata}" "{w}\il2cpp_dump"`
                - 산출물: DummyDll\, dump.cs, script.json, il2cpp.h
-               - Il2CppDumper가 실패하거나 메타데이터 버전을 지원하지 않으면 Cpp2IL로 재시도해줘 (옵션은 `--help`로 확인):
-                 `{Tool(ctx, ToolId.Cpp2Il)} --game-path "{root}" --exe-name "{exeName}"` (출력은 '{w}\cpp2il_out')
+               - Il2CppDumper가 실패하거나 메타데이터 버전을 지원하지 않으면 Cpp2IL로 재시도해줘 (DummyDll만 생성. 오류 시 Enter를 기다리니 입력을 닫고 실행 — bash `< /dev/null`, cmd `< NUL`):
+                 `{Tool(ctx, ToolId.Cpp2Il)} --game-path "{root}" --exe-name "{exeName}" --skip-analysis --disable-registration-prompts --output-root "{w}\cpp2il_out"`
                - 게임 폴더에 BepInEx\interop 또는 MelonLoader\Il2CppAssemblies가 이미 있으면 그 어셈블리를 우선 사용해줘.
                - global-metadata.dat 시그니처가 표준(0xFAB11BAF)이 아니면 보호된 메타데이터이므로 복호화하지 말고 보고 후 멈춰줘.
             2. 시그니처 탐색
@@ -298,10 +299,18 @@ public static class PromptBuilder
             ? "\n   - 분할 패키지(XAPK/APKS)이므로 안에 있는 base.apk와 config.*.apk도 각각 같은 폴더에 풀어줘 (lib\\<abi>\\*.so는 config.<abi>.apk 쪽에 있음)."
             : "";
 
+        var libil2cpp = $@"{unzipped}\lib\{abi}\libil2cpp.so";
+        var metadata = $@"{unzipped}\assets\bin\Data\Managed\Metadata\global-metadata.dat";
+        // Cpp2IL 2022.0.x는 버전을 숫자로만 파싱함: "2022.3.10f1" → FormatException, "2022.3.10" → OK
+        var unityVersion = d?.UnityVersion is { } uv && Regex.Match(uv, @"^\d+\.\d+\.\d+") is { Success: true } numeric
+            ? numeric.Value
+            : "<Unity 버전, 예: 2022.3.10>";
         var il2cpp = $"""
             2-A. IL2CPP 덤프
-               `{Tool(ctx, ToolId.Il2CppDumper)} "{unzipped}\lib\{abi}\libil2cpp.so" "{unzipped}\assets\bin\Data\Managed\Metadata\global-metadata.dat" "{w}\il2cpp_dump"`
-               - 실패하면 Cpp2IL로 재시도해줘. global-metadata.dat 시그니처가 표준이 아니면 복호화하지 말고 보고 후 멈춰줘.
+               `{Tool(ctx, ToolId.Il2CppDumper)} "{libil2cpp}" "{metadata}" "{w}\il2cpp_dump"`
+               - global-metadata.dat 시그니처가 표준이 아니면 복호화하지 말고 보고 후 멈춰줘.
+               - Il2CppDumper가 실패하면 Cpp2IL로 재시도해줘 (APK는 force 옵션 3개를 함께 지정, 버전은 f1 같은 접미사 없이 숫자만. 오류 시 Enter를 기다리니 입력을 닫고 실행 — bash `< /dev/null`, cmd `< NUL`):
+                 `{Tool(ctx, ToolId.Cpp2Il)} --game-path "{unzipped}" --force-binary-path "{libil2cpp}" --force-metadata-path "{metadata}" --force-unity-version "{unityVersion}" --skip-analysis --disable-registration-prompts --output-root "{w}\cpp2il_out"`
                `{Tool(ctx, ToolId.Ilspy)} -p -o "{w}\src_dummy" "{w}\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`
             """;
         var mono = $"""
@@ -320,7 +329,7 @@ public static class PromptBuilder
                - `bat\check_android_emulator_env.bat`로 CPU 가상화(VT)·녹스 설치/실행·ADB 연결을 먼저 확인해줘.
                - 녹스에 직접 설치한 앱이라면 `{adb} shell pm list packages -3`로 패키지명을 찾고, `{adb} shell pm path <패키지명>`에 나온 base.apk와 split APK를 모두 `{adb} pull`로 '{w}\apk'에 가져와줘.
             1. 압축 해제
-               `tar -xf "{t}" -C "{unzipped}"` (폴더를 먼저 만들 것){split}
+               `{Tar} -xf "{t}" -C "{unzipped}"` (폴더를 먼저 만들 것. Windows 내장 bsdtar — Git Bash의 GNU tar는 zip을 풀지 못함){split}
             {scriptStep}
             3. Java/네이티브 브리지 확인
                `{Tool(ctx, ToolId.Jadx)} -d "{w}\jadx_src" "{t}"`
@@ -336,16 +345,41 @@ public static class PromptBuilder
         var (t, w) = (Target(ctx), ctx.WorkDir);
         var ilspy = Tool(ctx, ToolId.Ilspy);
         var dumper = Tool(ctx, ToolId.Il2CppDumper);
+        var isFolder = Directory.Exists(ctx.TargetPath);
+
+        // 판별 결과의 메타데이터 경로에서 .app 번들 위치를 계산 (IPA는 압축을 풀 위치 기준)
+        var app = "<앱>.app";
+        bool? isIos = null;
+        if (Matching(ctx)?.MetadataPath is { } metaPath)
+        {
+            var norm = metaPath.Replace('/', '\\');
+            var idx = norm.IndexOf(@".app\", StringComparison.OrdinalIgnoreCase);
+            if (idx > 0)
+            {
+                var bundle = norm[..(idx + ".app".Length)];
+                app = Path.IsPathRooted(bundle) ? bundle : $@"{w}\unpacked\{bundle}";
+                isIos = !norm.Contains(@"\Contents\", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        var unpack = isFolder
+            ? "1. 압축 해제 불필요 (.app 폴더를 직접 선택함)"
+            : $"""
+              1. 압축 해제 (IPA/ZIP)
+                 `{Tar} -xf "{t}" -C "{w}\unpacked"` (폴더를 먼저 만들 것. Windows 내장 bsdtar 사용) → iOS는 Payload\<앱>.app, macOS는 <앱>.app\Contents
+              """;
+        var ios = $"- iOS IL2CPP: `{dumper} \"{app}\\Frameworks\\UnityFramework.framework\\UnityFramework\" \"{app}\\Data\\Managed\\Metadata\\global-metadata.dat\" \"{w}\\il2cpp_dump\"`";
+        var mac = $"- macOS IL2CPP: `{dumper} \"{app}\\Contents\\Frameworks\\GameAssembly.dylib\" \"{app}\\Contents\\Resources\\Data\\il2cpp_data\\Metadata\\global-metadata.dat\" \"{w}\\il2cpp_dump\"`\n" +
+                  $"   - macOS Mono: `{ilspy} -p -o \"{w}\\src\" \"{app}\\Contents\\Resources\\Data\\Managed\\Assembly-CSharp.dll\"`";
+        var extract = isIos switch { true => ios, false => mac, null => ios + "\n   " + mac };
+
         return $"""
-            1. 압축 해제 (IPA/ZIP인 경우)
-               `tar -xf "{t}" -C "{w}\unpacked"` → iOS는 Payload\<앱>.app, macOS는 <앱>.app\Contents
+            {unpack}
             2. 암호화 여부 확인
                - App Store에서 받은 iOS 실행 파일은 FairPlay로 암호화되어 있을 수 있어. REA inspect_macho로 LC_ENCRYPTION_INFO의 cryptid를 확인하고,
                  cryptid=1이면 복호화하지 말고 보고 후 멈춰줘 (직접 빌드했거나 암호화되지 않은 빌드만 분석).
             3. 스크립트 코드 추출
-               - iOS IL2CPP: `{dumper} "<앱>.app\Frameworks\UnityFramework.framework\UnityFramework" "<앱>.app\Data\Managed\Metadata\global-metadata.dat" "{w}\il2cpp_dump"`
-               - macOS IL2CPP: `{dumper} "<앱>.app\Contents\Frameworks\GameAssembly.dylib" "<앱>.app\Contents\Resources\Data\il2cpp_data\Metadata\global-metadata.dat" "{w}\il2cpp_dump"`
-               - macOS Mono: `{ilspy} -p -o "{w}\src" "<앱>.app\Contents\Resources\Data\Managed\Assembly-CSharp.dll"`
+               {extract}
                - IL2CPP 덤프 후에는 `{ilspy} -p -o "{w}\src_dummy" "{w}\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`로 시그니처를 확인해줘.
             4. 로직 분석
                - REA로 UnityFramework / GameAssembly.dylib를 열어 script.json 주소와 대응시키고, 핵심 로직과 후킹 후보를 '{w}\docs\hooks.md'에 정리해줘.
@@ -356,6 +390,11 @@ public static class PromptBuilder
 
     private static string Target(PromptContext ctx) =>
         string.IsNullOrWhiteSpace(ctx.TargetPath) ? TargetPlaceholder : ctx.TargetPath;
+
+    /// <summary>
+    /// APK/IPA(zip) 압축 해제용 Windows 내장 bsdtar. Git Bash에서는 `tar`가 GNU tar라 zip을 풀지 못하므로 전체 경로를 씁니다.
+    /// </summary>
+    private static string Tar => $"\"{Path.Combine(Environment.SystemDirectory, "tar.exe")}\"";
 
     /// <summary>단계 안에서는 짧은 도구 이름을 쓰고, 실제 경로는 '사용할 도구' 섹션에 한 번만 적습니다.</summary>
     private static string Tool(PromptContext ctx, ToolId id) => ctx.Tools[id].CommandName;

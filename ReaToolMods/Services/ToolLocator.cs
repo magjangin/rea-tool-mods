@@ -50,7 +50,7 @@ public static class ToolLocator
                     : null) ?? FindOnPath("apktool"), downloader),
             new ToolLocation(ToolId.Node, "Node.js", "node",
                 FindOnPath("node"), "https://nodejs.org 에서 Node.js 22+ 설치"),
-            new ToolLocation(ToolId.Asar, "@electron/asar", "npx @electron/asar",
+            new ToolLocation(ToolId.Asar, "@electron/asar", "asar",
                 FindOnPath("asar"), "npm install -g @electron/asar (또는 " + downloader + ")"),
             new ToolLocation(ToolId.Il2CppDumper, "Il2CppDumper", "Il2CppDumper",
                 FindInToolsDir("il2cppdumper", "Il2CppDumper.exe") ?? FindOnPath("Il2CppDumper"), downloader),
