@@ -79,7 +79,8 @@ rea-tool-mods/
 ├── README.md
 ├── docs/
 │   ├── CODE_SNIPPETS.md                  # 핵심 코드 스니펫 (C# · bat · ps1)
-│   └── PROMPT_TEST.md                    # 프롬프트 테스트 결과 · 발견한 버그 · 샘플 프롬프트
+│   ├── PROMPT_TEST.md                    # 프롬프트 테스트 결과 · 발견한 버그 · 샘플 프롬프트
+│   └── NOX_WORKFLOW.md                   # 녹스로 Unity APK 꺼내기 · 판별 · 분석 순서 · 문제 해결
 │
 ├── bat/
 │   ├── download_analysis_tools.bat       # 분석 도구 자동 다운로더 (Unity IL2CPP 도구 포함)
@@ -135,7 +136,7 @@ rea-tool-mods/
 
 2. **도구 다운로드:** `bat/download_analysis_tools.bat` 실행 (또는 앱의 `⬇️ 분석 도구 설치` 버튼)
 
-3. **(Unity APK 작업 시) 에뮬레이터 점검:** `bat/check_android_emulator_env.bat` 실행 (또는 앱의 `📱 VT · 녹스 점검` 버튼)
+3. **(Unity APK 작업 시) 에뮬레이터 점검:** `bat/check_android_emulator_env.bat` 실행 (또는 앱의 `📱 VT · 녹스 점검` 버튼). APK 꺼내기부터 분석까지의 순서는 [docs/NOX_WORKFLOW.md](docs/NOX_WORKFLOW.md) 참고
 
 4. **앱 실행:** `bat/run_tool.bat`을 더블 클릭하거나:
    ```bash
