@@ -68,6 +68,10 @@ if ($enabled.Count -eq 0 -and -not $vbsOn) {
     Info "  bcdedit /set hypervisorlaunchtype off   -> reboot"
     Info "  undo: bcdedit /set hypervisorlaunchtype auto -> reboot"
     Info "  Note: while off, WSL2, Docker (WSL2), Windows Sandbox and Memory integrity stop working."
+} else {
+    Info "These features are installed, but no hypervisor is running this boot, so Nox can use VT."
+    Info "If you turned it off with bcdedit, WSL2 / Docker (WSL2) / Windows Sandbox stay unavailable until:"
+    Info "  bcdedit /set hypervisorlaunchtype auto   -> reboot"
 }
 Write-Host ""
 

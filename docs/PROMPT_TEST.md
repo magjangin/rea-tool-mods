@@ -15,15 +15,15 @@ dotnet run --project tests/PromptTests
 
 ---
 
-## 결과 요약 (2026-10-13)
+## 결과 요약 (2026-10-13, JDK 17 설치 후 재실행)
 
 | 영역 | 내용 | 결과 |
 |---|---|---|
 | A. 판별 | 8종 픽스처가 올바른 타겟으로 판별되는지 | ✅ 8 / 8 |
 | A. 생성 | 8종 타겟 × 5가지 작업 폴더 상태 = 40개 프롬프트 검증 | ✅ 40 / 40 |
-| B. 실행 | 프롬프트의 명령을 그대로 실행 | ✅ 11 통과 · ⏭️ 2 건너뜀 |
+| B. 실행 | 프롬프트의 명령을 그대로 실행 | ✅ 13 통과 · ⏭️ 1 건너뜀 |
 | C. ViewModel | 앱 흐름 (판별 → 폴더 → 경고 → 이어하기 → 재사용) | ✅ 11 통과 · ⏭️ 1 건너뜀 |
-| **합계** | | **70 통과 · 0 실패 · 3 건너뜀** |
+| **합계** | | **72 통과 · 0 실패 · 2 건너뜀** |
 
 ---
 
@@ -65,7 +65,8 @@ dotnet run --project tests/PromptTests
 | Unity IL2CPP | `Cpp2IL --game-path … --exe-name … --skip-analysis --disable-registration-prompts --output-root …` | 옵션 파싱 통과 후 본 처리 단계에서 실패 | ✅ |
 | APP | `asar extract <resources\app.asar> extracted` | `asar pack`으로 만든 실제 asar에서 `main.js` 추출 | ✅ |
 | Unity APP | `tar.exe -xf <ipa> -C unpacked` + 경로 검사 | iOS 덤프 명령의 `Payload\Game.app\Frameworks\UnityFramework.framework\UnityFramework`와 metadata가 실제로 존재 | ✅ |
-| APK | `jadx -d …` / `apktool d -f -o …` | — | ⏭️ Java 미설치 |
+| APK | `jadx -d <out> <apk>` | JADX 1.5.6이 인자를 받아 입력을 처리 (가짜 dex라 `No classes to decompile`) | ✅ |
+| APK | `apktool d -f -o <out> <apk>` | Apktool 3.0.3이 인자를 받아 디코딩 시작 (가짜 매니페스트에서 중단) | ✅ |
 | APK · Unity APK | `adb install` · `pm path` · `logcat` | — | ⏭️ 녹스·기기 연결 필요 |
 
 REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `procedure_pseudo_code`, `inspect_macho`)은 연결된 REA 서버의 실제 도구 목록과 대조해 확인했습니다.
@@ -104,6 +105,7 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 | 3 | Cpp2IL 명령에 출력 위치가 없고, 입력 대기로 멈출 수 있음 | `--output-root` 누락, 주소를 못 찾으면 묻는 프롬프트, 오류 시 Enter 대기 | `--output-root` · `--skip-analysis` · `--disable-registration-prompts` 추가, 입력을 닫고 실행하라는 안내 추가 |
 | 4 | APP 언팩 명령이 설치 확인 질문에서 멈출 수 있음 | `npx @electron/asar`는 로컬 패키지가 없으면 설치 여부를 물을 수 있음 | 설치된 `asar`를 직접 사용 (환경 점검으로 설치 확인) |
 | 5 | Unity APP 프롬프트에 `<앱>.app` 자리표시자가 남음 | IPA 안의 앱 번들 이름을 쓰지 않음 | 판별된 메타데이터 경로에서 `.app` 위치를 계산해 실제 경로로 채우고, iOS/macOS 중 해당 명령만 표시 |
+| 6 | 프롬프트의 `adb`가 녹스 연결을 끊을 수 있음 (녹스 실행 후 환경 점검에서 발견) | `adb`가 PATH의 platform-tools 1.0.41로 잡혔는데 녹스는 `nox_adb` 1.0.36을 씀 → 버전이 다르면 서로 adb 서버를 재시작 | 녹스가 설치되어 있으면 `nox_adb`를 우선 사용, 버전이 다를 때만 환경 점검에 경고 표시 |
 
 (이번 점검 중 별도로 `download_analysis_tools.bat`의 apktool 래퍼에 다운로드 로그가 섞이는 버그도 수정했습니다 — [CODE_SNIPPETS.md 12.5](CODE_SNIPPETS.md#125-if--블록-안에서-파일-쓰기--apktoolbat-래퍼-버그-수정).)
 
@@ -113,8 +115,7 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 
 | 항목 | 이유 | 검증 방법 |
 |---|---|---|
-| JADX · Apktool 명령 | 이 PC에 Java가 없음 (`JAVA_HOME`이 없는 경로) | JDK 17+ 설치 → 새 터미널에서 `bat\run_prompt_tests.bat` 재실행 (자동으로 실행됨) |
-| ADB 명령 (`pm path`, `pull`, `install`, `logcat`) | 녹스·기기 연결 필요 | 녹스 실행 후 `bat\check_android_emulator_env.bat`으로 연결 확인, 실제 앱으로 수동 확인 |
+| ADB 명령 (`pm path`, `pull`, `install`, `logcat`) | 기기 상태에 따라 결과가 달라 자동 테스트에 넣지 않음 | 녹스 연결과 `pm path`는 수동으로 확인함 (`127.0.0.1:62001`, Android 9, ABI에 arm64-v8a 포함). `bat\check_android_emulator_env.bat`으로 언제든 확인 |
 | 실제 게임에서의 덤프 결과 | 가짜 바이너리로는 인자·경로까지만 확인 가능 | 본인이 가진 Unity 게임을 대상으로 앱에서 프롬프트를 만들어 에이전트에 보내 보기 |
 | 에이전트가 지시를 따르는지 | 사람/에이전트의 실제 실행이 필요 | 위와 같음. 결과는 작업 폴더의 `PROGRESS.md`와 `logs\`로 확인 |
 

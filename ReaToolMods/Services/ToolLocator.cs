@@ -56,10 +56,11 @@ public static class ToolLocator
                 FindInToolsDir("il2cppdumper", "Il2CppDumper.exe") ?? FindOnPath("Il2CppDumper"), downloader),
             new ToolLocation(ToolId.Cpp2Il, "Cpp2IL", "Cpp2IL",
                 FindInToolsDir("cpp2il", "Cpp2IL*.exe") ?? FindOnPath("Cpp2IL"), downloader),
+            // 녹스가 있으면 nox_adb를 우선: 다른 버전의 adb를 쓰면 녹스의 adb 서버를 재시작시켜 연결이 끊김
             new ToolLocation(ToolId.Adb, "ADB", "adb",
-                FindOnPath("adb")
-                    ?? ExistingFile(Path.Combine(localAppData, "Android", "Sdk", "platform-tools", "adb.exe"))
-                    ?? (FindNoxBinDir() is { } noxBin ? ExistingFile(Path.Combine(noxBin, "nox_adb.exe")) : null),
+                (FindNoxBinDir() is { } noxBin ? ExistingFile(Path.Combine(noxBin, "nox_adb.exe")) : null)
+                    ?? FindOnPath("adb")
+                    ?? ExistingFile(Path.Combine(localAppData, "Android", "Sdk", "platform-tools", "adb.exe")),
                 "Android SDK platform-tools 설치 또는 녹스(nox_adb.exe) 설치"),
             new ToolLocation(ToolId.ReaCli, "REA CLI", "rea",
                 FindOnPath("rea"), @"npm install -g rea-agents (또는 bat\setup_rea_workflows.bat 실행)"),

@@ -44,6 +44,9 @@ public static partial class EnvironmentChecker
     [GeneratedRegex(@"version ""(\d+)(?:\.(\d+))?")]
     private static partial Regex JavaVersionRegex();
 
+    [GeneratedRegex(@"Android Debug Bridge version (\d+\.\d+\.\d+)")]
+    private static partial Regex AdbVersionRegex();
+
     public static async Task<IReadOnlyList<EnvironmentCheck>> RunAsync(DetectionResult? detection)
     {
         ToolLocator.Invalidate();
@@ -66,7 +69,7 @@ public static partial class EnvironmentChecker
         results.Add(VirtualizationCheck());
         results.Add(await Task.Run(NoxCheck));
         results.Add(await adbCheck);
-        if (AdbConflictCheck(tools[ToolId.Adb]) is { } conflict) results.Add(conflict);
+        if (await AdbConflictCheckAsync() is { } conflict) results.Add(conflict);
         results.Add(ReaSkillCheck());
         results.Add(await Task.Run(ReaMcpCheck));
         results.AddRange(AgentApps.All.Select(AgentAppCheck));
@@ -171,18 +174,27 @@ public static partial class EnvironmentChecker
     /// <summary>
     /// PATH의 adb와 녹스의 nox_adb 버전이 다르면 서로 adb 서버를 죽이고 다시 띄워 연결이 끊깁니다.
     /// </summary>
-    private static EnvironmentCheck? AdbConflictCheck(ToolLocation adb)
+    private static async Task<EnvironmentCheck?> AdbConflictCheckAsync()
     {
-        if (!adb.Found) return null;
         var noxBin = ToolLocator.FindNoxBinDir();
         var noxAdb = noxBin == null ? null : Path.Combine(noxBin, "nox_adb.exe");
-        if (noxAdb == null || !File.Exists(noxAdb) ||
-            string.Equals(Path.GetFullPath(adb.Path!), Path.GetFullPath(noxAdb), StringComparison.OrdinalIgnoreCase))
-            return null;
+        var pathAdb = ToolLocator.FindOnPath("adb");
+        if (noxAdb == null || !File.Exists(noxAdb) || pathAdb == null) return null;
 
-        return new EnvironmentCheck(GroupAndroid, "ADB 버전 충돌 주의", CheckStatus.Info,
-            $"PATH의 adb와 녹스의 nox_adb가 함께 있습니다. 버전이 다르면 서로 adb 서버를 재시작해 연결이 끊기니 한쪽만 쓰세요 (녹스 작업은 {noxAdb})",
+        var noxVersion = AdbVersion((await RunAsync(noxAdb, "version")).Output);
+        var pathVersion = AdbVersion((await RunAsync(pathAdb, "version")).Output);
+        if (noxVersion == pathVersion) return null;
+
+        return new EnvironmentCheck(GroupAndroid, "ADB 버전 충돌 주의", CheckStatus.Warning,
+            $"녹스 nox_adb {noxVersion} ↔ PATH adb {pathVersion}. 서로 adb 서버를 재시작해 녹스 연결이 끊기므로 앱과 프롬프트는 nox_adb를 씁니다. " +
+            $"터미널에서도 `adb` 대신 nox_adb를 쓰세요 ({noxAdb})",
             "녹스 ADB 연결");
+    }
+
+    private static string AdbVersion(string output)
+    {
+        var m = AdbVersionRegex().Match(output);
+        return m.Success ? m.Groups[1].Value : "?";
     }
 
     // ───────────────────────── REA / 에이전트 ─────────────────────────
