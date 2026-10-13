@@ -1,0 +1,289 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ReaToolMods.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="880"
+        Width="1180" Height="880"
+        MinWidth="960" MinHeight="700"
+        WindowStartupLocation="CenterScreen"
+        x:Class="ReaToolMods.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="REA Tool Mods - Reverse Engineer Anything Helper">
+
+    <Design.DataContext>
+        <vm:MainViewModel />
+    </Design.DataContext>
+
+    <Grid Margin="26" RowDefinitions="Auto,*,Auto">
+        <!-- Top App Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,18">
+            <StackPanel Grid.Column="0" Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock Text="🛠️ REA Tool Mods" 
+                           FontSize="24" 
+                           FontWeight="Bold" />
+                    <Border Background="#1F6FEB" 
+                            CornerRadius="4" 
+                            Padding="8,2" 
+                            VerticalAlignment="Center">
+                        <TextBlock Text="v1.3" 
+                                   FontSize="11" 
+                                   FontWeight="Bold" 
+                                   Foreground="White" />
+                    </Border>
+                </StackPanel>
+                <TextBlock Text="작업 폴더 자동 생성 · 타겟 디컴파일 · 빌드 및 실행 검증 워크플로우 지원" 
+                           FontSize="13" 
+                           Opacity="0.75" />
+            </StackPanel>
+
+            <!-- Quick Links -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Button Command="{Binding OpenGitHubRepoCommand}" 
+                        Classes="accent"
+                        Padding="14,8" 
+                        CornerRadius="6"
+                        Cursor="Hand">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="🌐" />
+                        <TextBlock Text="GitHub 저장소" FontWeight="SemiBold" FontSize="12.5" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding OpenReleasesCommand}" 
+                        Padding="14,8" 
+                        CornerRadius="6"
+                        Cursor="Hand">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="⬇️" />
+                        <TextBlock Text="Releases 다운로드" FontWeight="SemiBold" FontSize="12.5" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- Main Body -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="18">
+
+                <!-- Section 1: File & Work Directory Configuration Card -->
+                <Border Background="{DynamicResource SystemAltHighColor}" 
+                        BorderBrush="{DynamicResource SystemListMediumColor}" 
+                        BorderThickness="1" 
+                        CornerRadius="10" 
+                        Padding="20">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="⚙️ 분석 경로 및 작업 디렉터리 설정" 
+                                   FontSize="15" 
+                                   FontWeight="SemiBold" />
+                        
+                        <!-- 1. Target File Path Row -->
+                        <Grid RowDefinitions="Auto,Auto" RowSpacing="4">
+                            <TextBlock Text="1) 대상 파일 경로 (EXE, DLL, APK, APP/ASAR):" 
+                                       FontSize="12" Opacity="0.8" FontWeight="SemiBold" />
+                            <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                <TextBox Grid.Column="0" 
+                                         Text="{Binding TargetFilePath}" 
+                                         PlaceholderText="분석할 파일 경로 (예: H:\source\repos\test\Assembly-CSharp.dll)..." 
+                                         CornerRadius="6" 
+                                         Padding="12,9" 
+                                         FontFamily="Consolas, Cascadia Code, monospace" 
+                                         FontSize="12.5" />
+                                <Button Grid.Column="1" 
+                                        Command="{Binding BrowseFileCommand}" 
+                                        Padding="18,9" 
+                                        CornerRadius="6" 
+                                        Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="📁" />
+                                        <TextBlock Text="파일 찾아보기..." FontWeight="SemiBold" FontSize="12.5" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </Grid>
+
+                        <!-- 2. Work Directory Path Row -->
+                        <Grid RowDefinitions="Auto,Auto" RowSpacing="4">
+                            <TextBlock Text="2) 디컴파일 및 소스 생성 작업 폴더 (Work Directory):" 
+                                       FontSize="12" Opacity="0.8" FontWeight="SemiBold" />
+                            <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                <TextBox Grid.Column="0" 
+                                         Text="{Binding WorkDirPath}" 
+                                         PlaceholderText="디컴파일된 파일들이 생성될 작업 폴더 (예: H:\source\repos\target_workspace)..." 
+                                         CornerRadius="6" 
+                                         Padding="12,9" 
+                                         FontFamily="Consolas, Cascadia Code, monospace" 
+                                         FontSize="12.5" />
+                                <Button Grid.Column="1" 
+                                        Command="{Binding BrowseFolderCommand}" 
+                                        Padding="18,9" 
+                                        CornerRadius="6" 
+                                        Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="📂" />
+                                        <TextBlock Text="작업 폴더 선택..." FontWeight="SemiBold" FontSize="12.5" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </Grid>
+
+                        <!-- The 4 Core Targets Buttons -->
+                        <StackPanel Spacing="8" Margin="0,4,0,0">
+                            <TextBlock Text="3) 분석 타겟 포맷 선택 (클릭 시 전용 디컴파일/실행 프롬프트 생성):" 
+                                       FontSize="12.5" 
+                                       Opacity="0.8" 
+                                       FontWeight="SemiBold" />
+                            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="10">
+                                <!-- EXE -->
+                                <Button Grid.Column="0" 
+                                        Command="{Binding ApplyPresetCommand}" CommandParameter="exe" 
+                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                        Padding="14,10" CornerRadius="6" Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="🖥️" FontSize="14" />
+                                        <TextBlock Text="EXE (디컴파일 &amp; 스켈레톤)" FontWeight="SemiBold" FontSize="12.5" />
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- DLL -->
+                                <Button Grid.Column="1" 
+                                        Command="{Binding ApplyPresetCommand}" CommandParameter="dll" 
+                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                        Padding="14,10" CornerRadius="6" Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="⚙️" FontSize="14" />
+                                        <TextBlock Text="DLL (C# 디컴파일 &amp; 빌드)" FontWeight="SemiBold" FontSize="12.5" />
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- APK -->
+                                <Button Grid.Column="2" 
+                                        Command="{Binding ApplyPresetCommand}" CommandParameter="apk" 
+                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                        Padding="14,10" CornerRadius="6" Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="📱" FontSize="14" />
+                                        <TextBlock Text="APK (Java 디컴파일 &amp; ADB)" FontWeight="SemiBold" FontSize="12.5" />
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- APP -->
+                                <Button Grid.Column="3" 
+                                        Command="{Binding ApplyPresetCommand}" CommandParameter="app" 
+                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                        Padding="14,10" CornerRadius="6" Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="📦" FontSize="14" />
+                                        <TextBlock Text="APP (ASAR 언팩 &amp; 앱 실행)" FontWeight="SemiBold" FontSize="12.5" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Section 2: Prompt Workspace Card -->
+                <Border Background="{DynamicResource SystemAltHighColor}" 
+                        BorderBrush="{DynamicResource SystemAccentColor}" 
+                        BorderThickness="1" 
+                        CornerRadius="10" 
+                        Padding="20">
+                    <StackPanel Spacing="16">
+                        <!-- Card Header -->
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Spacing="3">
+                                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                    <TextBlock Text="✍️ 디컴파일 및 실행 워크플로우 프롬프트" 
+                                               FontSize="16" 
+                                               FontWeight="Bold" />
+                                    <Border Background="#238636" CornerRadius="4" Padding="8,2">
+                                        <TextBlock Text="{Binding SelectedTargetCategory, StringFormat='현재 타겟: {0}'}" 
+                                                   FontSize="11" 
+                                                   Foreground="White" 
+                                                   FontWeight="Bold" />
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="에이전트가 폴더를 생성하고 대상 도구로 소스를 디컴파일한 후 실행/빌드 검증을 수행하도록 설계된 지시문입니다." 
+                                           FontSize="12.5" 
+                                           Opacity="0.75" />
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Large Multi-line Prompt Editor -->
+                        <TextBox Text="{Binding PromptText}" 
+                                 PlaceholderText="여기에 AI 에이전트에게 전송할 디컴파일 및 실행 프롬프트를 자유롭게 작성하세요..."
+                                 AcceptsReturn="True" 
+                                 TextWrapping="Wrap" 
+                                 Height="310" 
+                                 FontFamily="Consolas, Cascadia Code, monospace" 
+                                 FontSize="13.5" 
+                                 CornerRadius="6" 
+                                 Padding="16,14" />
+
+                        <!-- Action Toolbar -->
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <!-- Left: Editor Tools (Copy / Clear) -->
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+                                <Button Command="{Binding CopyPromptCommand}" 
+                                        Padding="16,10" CornerRadius="6" Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="📋" FontSize="14" />
+                                        <TextBlock Text="클립보드 복사" FontWeight="SemiBold" FontSize="13" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Command="{Binding ClearPromptCommand}" 
+                                        Padding="16,10" CornerRadius="6" Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="🗑️" FontSize="14" />
+                                        <TextBlock Text="내용 지우기" FontSize="13" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+
+                            <!-- Right: Send to Agents -->
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12">
+                                <Button Command="{Binding SendToClaudeCommand}" 
+                                        Classes="accent"
+                                        Padding="20,10" CornerRadius="6" Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="🤖" FontSize="15" />
+                                        <TextBlock Text="Claude 앱에 보내기" FontWeight="Bold" FontSize="13" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Command="{Binding SendToAntigravityCommand}" 
+                                        Padding="20,10" CornerRadius="6" Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="🌌" FontSize="15" />
+                                        <TextBlock Text="안티그래비티에 보내기" FontWeight="Bold" FontSize="13" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer / Status Bar -->
+        <Border Grid.Row="2" 
+                Margin="0,16,0,0" 
+                Background="{DynamicResource SystemListLowColor}" 
+                CornerRadius="6" 
+                Padding="16,10">
+            <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Grid.Column="0" 
+                           Text="상태: " 
+                           FontWeight="Bold" 
+                           FontSize="12.5" 
+                           Opacity="0.75" />
+                <TextBlock Grid.Column="1" 
+                           Text="{Binding StatusMessage}" 
+                           FontSize="12.5" 
+                           TextTrimming="CharacterEllipsis" 
+                           Margin="6,0,0,0" />
+            </Grid>
+        </Border>
+    </Grid>
+
+</Window>
