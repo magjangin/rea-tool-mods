@@ -41,6 +41,21 @@ public static partial class TargetDetector
                 return r;
             }
 
+            if (AppExecutionAlias.TryResolve(path, out var aliasTarget))
+            {
+                // WindowsApps\*.exe는 0바이트 별칭이라 열 수 없음 → 실제 exe를 판별 (FilePath도 실제 경로로 바뀜)
+                if (aliasTarget != null && File.Exists(aliasTarget))
+                {
+                    var real = Detect(aliasTarget);
+                    real.Evidence.Insert(0, "앱 실행 별칭 → 실제 exe로 대체");
+                    return real;
+                }
+
+                r.Warnings.Add("Microsoft Store 앱 실행 별칭(0바이트 바로가기)이라 직접 열 수 없습니다 — " +
+                               (aliasTarget != null ? $"실제 파일: {aliasTarget}" : @"C:\Program Files\WindowsApps 아래의 실제 exe를 선택하세요."));
+                return r;
+            }
+
             var ext = Path.GetExtension(path).ToLowerInvariant();
             if (!CheckSignature(path, ext, r) && ext is ".apk" or ".xapk" or ".apks" or ".aab" or ".ipa" or ".zip")
             {

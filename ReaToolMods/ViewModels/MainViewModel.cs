@@ -233,6 +233,13 @@ public partial class MainViewModel : ViewModelBase
         var detection = await Task.Run(() => TargetDetector.Detect(path));
         if (version != _detectVersion) return; // 그 사이 다른 파일이 선택됨
 
+        if (!SamePath(detection.FilePath, path))
+        {
+            // 앱 실행 별칭처럼 실제 파일이 다른 곳에 있으면 대상 경로를 실제 파일로 바꿈
+            path = detection.FilePath;
+            SetTarget(path);
+        }
+
         _detection = detection;
         if (!keepWorkDir) _workDirPinned = false;
 

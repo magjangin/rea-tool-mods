@@ -126,6 +126,23 @@ foreach (var (kind, target) in fixtures)
     }
 }
 
+// 앱 실행 별칭(WindowsApps\*.exe, 0바이트 재분석 지점)은 열 수 없으므로 실제 exe로 바꿔 판별
+var aliasDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps");
+var alias = Directory.Exists(aliasDir)
+    ? Directory.EnumerateFiles(aliasDir, "*.exe").FirstOrDefault(f => AppExecutionAlias.TryResolve(f, out var t) && File.Exists(t))
+    : null;
+if (alias != null)
+{
+    var ad = TargetDetector.Detect(alias);
+    Check("A.판별", $"앱 실행 별칭 {Path.GetFileName(alias)} → 실제 exe",
+        !ad.FilePath.Equals(alias, StringComparison.OrdinalIgnoreCase) && File.Exists(ad.FilePath) && ad.Warnings.Count == 0,
+        $"{ad.FilePath} | {string.Join(" · ", ad.Evidence)} | {string.Join(" · ", ad.Warnings)}");
+}
+else
+{
+    Skip("A.판별", "앱 실행 별칭 → 실제 exe", @"%LOCALAPPDATA%\Microsoft\WindowsApps에 별칭 없음");
+}
+
 List<string> ValidatePrompt(string p, TargetProfile profile, string target, string w, string state, DetectionResult d)
 {
     var errs = new List<string>();
@@ -352,6 +369,17 @@ await vm.CheckEnvironmentAsync();
 Check("C.VM", "환경 재점검이 사용자가 고친 프롬프트를 덮어쓰지 않음", vm.PromptText == "사용자가 직접 고친 프롬프트", "");
 vm.RegeneratePromptManually();
 Check("C.VM", "🔄 다시 생성은 덮어씀", vm.PromptText.StartsWith("# [EXE]"), "");
+
+if (alias != null)
+{
+    var vmAlias = new MainViewModel();
+    vmAlias.TargetFilePath = alias;
+    await Until(() => vmAlias.StatusMessage.Contains("판별 완료"), 20);
+    Check("C.VM", "앱 실행 별칭 입력 → 대상 경로가 실제 exe로 바뀌고 오류 경고 없음",
+        File.Exists(vmAlias.TargetFilePath) && !vmAlias.TargetFilePath.Equals(alias, StringComparison.OrdinalIgnoreCase) &&
+        !vmAlias.ValidationWarning.Contains("판별 중 오류") && vmAlias.PromptText.Contains($"- 대상 파일: {vmAlias.TargetFilePath}"),
+        $"{vmAlias.TargetFilePath} | {vmAlias.ValidationWarning}");
+}
 
 // 접미사가 다른 기존 폴더 재사용 (v1.3 폴더 / workspace.json 폴더) — ReposRoot에 임시 폴더를 만들고 정리
 var unique = "ReaToolPromptTest" + Guid.NewGuid().ToString("N")[..6];
