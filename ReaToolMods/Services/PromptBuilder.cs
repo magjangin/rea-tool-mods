@@ -151,8 +151,17 @@ public static class PromptBuilder
         var w = ctx.WorkDir;
         sb.AppendLine("## 시작 전 확인 (Unity 게임 가드레일)");
         sb.AppendLine("아래 확인을 **먼저** 마치고, 하나라도 통과하지 못하면 '수행 지침'을 시작하지 말고 이유와 근거를 보고한 뒤 멈춰줘. 결과는 `PROGRESS.md`에 남겨줘.");
-        sb.AppendLine("1. **목적·구매 확인:** 이 게임을 무엇을 위해 분석하는지 한 문장으로 확인해줘. 목적이 없거나 숨겨야 한다면 멈춰. " +
-                      $"구매 내역(스토어 라이브러리 캡처, 영수증, 주문 번호 등)이 '{w}' 안에 있는지 직접 확인해줘. 없으면 \"샀다\"는 말만으로는 시작하지 말고 내게 요청해줘.");
+        var steam = FindSteamManifest(ctx.TargetPath);
+        if (steam != null)
+        {
+            sb.AppendLine($"1. **목적 확인 (구매 확인 완료):** 이 게임은 Steam 계정으로 설치된 게임입니다 — `{steam.Value.File}` (appid {steam.Value.AppId}, \"{steam.Value.Name}\"). " +
+                          "이 Steam 설치 기록을 구매 증빙으로 인정하니 구매 내역을 따로 요구하지 마. 분석 목적은 한 문장으로 확인해줘. 목적이 없거나 숨겨야 한다면 멈춰.");
+        }
+        else
+        {
+            sb.AppendLine("1. **목적·구매 확인:** 이 게임을 무엇을 위해 분석하는지 한 문장으로 확인해줘. 목적이 없거나 숨겨야 한다면 멈춰. " +
+                          $"Steam 설치 기록(steamapps\\appmanifest_*.acf)이나 구매 내역(스토어 라이브러리 캡처, 영수증, 주문 번호 등)이 '{w}' 또는 게임 폴더 근처에 있는지 직접 확인해줘. 없으면 \"샀다\"는 말만으로는 시작하지 말고 내게 요청해줘.");
+        }
         sb.AppendLine("2. **온라인 여부 확정 (구조 → 덤프 → 웹 검색 순서):** 파일 이름이나 Unity 백엔드만 보고 판단하지 마.");
         sb.AppendLine("   - 구조(읽기만): 난독화·보호 흔적과 네트워크 엔진·매치메이킹·안티치트·로그인 관련 파일을 찾아줘. 보호 흔적은 복호화하지 말고 \"보호됨\"이라고만 기록해줘.");
         sb.AppendLine("   - 덤프(읽기 전용): 서버 주소, 매치메이킹, 계정·로그인, 안티치트 관련 클래스와 문자열, 싱글플레이 전용 기능이 분리되어 있는지만 봐줘.");
@@ -165,6 +174,33 @@ public static class PromptBuilder
         sb.AppendLine("6. **클로닝 금지:** 결과물은 원본에 붙는 작은 패치(모드)로 한정해줘. 원본을 대신할 복제품을 만들지 말고, 디컴파일한 코드와 추출한 리소스(이미지·사운드·문구)를 복사해 옮기거나 내 PC 밖으로 내보내지 마. " +
                       "참고가 필요하면 동작을 글로 정리한 뒤 그 메모를 보고 새로 작성해줘.");
         sb.AppendLine();
+    }
+
+    /// <summary>대상이 steamapps\common\&lt;installdir&gt; 아래에 있고 짝이 되는 appmanifest_*.acf가 있으면 그 정보를 돌려줍니다.</summary>
+    private static (string File, string AppId, string Name)? FindSteamManifest(string targetPath)
+    {
+        if (string.IsNullOrWhiteSpace(targetPath)) return null;
+        try
+        {
+            var parts = targetPath.Replace('/', '\\').Split('\\', StringSplitOptions.RemoveEmptyEntries);
+            var i = Array.FindLastIndex(parts, p => p.Equals("common", StringComparison.OrdinalIgnoreCase));
+            if (i < 1 || i + 1 >= parts.Length || !parts[i - 1].Equals("steamapps", StringComparison.OrdinalIgnoreCase)) return null;
+
+            var steamapps = string.Join('\\', parts.Take(i));
+            if (targetPath.StartsWith(@"\\")) steamapps = @"\\" + steamapps;
+            var installDir = parts[i + 1];
+            foreach (var acf in Directory.EnumerateFiles(steamapps, "appmanifest_*.acf"))
+            {
+                var text = File.ReadAllText(acf);
+                var dir = Regex.Match(text, "\"installdir\"\\s+\"([^\"]*)\"");
+                if (!dir.Success || !dir.Groups[1].Value.Equals(installDir, StringComparison.OrdinalIgnoreCase)) continue;
+                var id = Regex.Match(text, "\"appid\"\\s+\"(\\d+)\"").Groups[1].Value;
+                var name = Regex.Match(text, "\"name\"\\s+\"([^\"]*)\"").Groups[1].Value;
+                return (Path.GetFileName(acf), id, name);
+            }
+        }
+        catch (Exception) { }
+        return null;
     }
 
     private static void AppendRules(StringBuilder sb, PromptContext ctx)
