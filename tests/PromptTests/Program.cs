@@ -126,6 +126,26 @@ foreach (var (kind, target) in fixtures)
     }
 }
 
+// Steam 설치 기록(appmanifest_*.acf)이 짝으로 있으면 구매 확인 완료로 처리하고, 없으면 구매 내역을 요구
+{
+    var steamRoot = Path.Combine(fixtureBase, "SteamFx", "steamapps");
+    var gameDir = Path.Combine(steamRoot, "common", "Steam Game");
+    Directory.CreateDirectory(gameDir);
+    var exe = Path.Combine(gameDir, "Steam Game.exe");
+    File.Copy(Path.Combine(fx, "IlGame", "IlGame.exe"), exe, true);
+    File.WriteAllText(Path.Combine(steamRoot, "appmanifest_424242.acf"),
+        "\"AppState\"\n{\n\t\"appid\"\t\t\"424242\"\n\t\"name\"\t\t\"Steam Game\"\n\t\"installdir\"\t\t\"Steam Game\"\n}\n");
+    var il = TargetCatalog.Get(TargetKind.UnityIl2Cpp);
+    var wk = Path.Combine(fixtureBase, "SteamFx", "work");
+    string Gen(string t) => PromptBuilder.Build(new PromptContext(il, t, wk, null, WorkspaceState.Missing, tools));
+    var withSteam = Gen(exe);
+    Check("A.생성", "Steam 설치 게임 → 구매 확인 완료 문구",
+        withSteam.Contains("구매 확인 완료") && withSteam.Contains("appmanifest_424242.acf") && withSteam.Contains("appid 424242"));
+    var noSteam = Gen(Path.Combine(fx, "IlGame", "IlGame.exe"));
+    Check("A.생성", "Steam 기록 없으면 구매 내역 요구 유지",
+        !noSteam.Contains("구매 확인 완료") && noSteam.Contains("appmanifest_*.acf"));
+}
+
 // 앱 실행 별칭(WindowsApps\*.exe, 0바이트 재분석 지점)은 열 수 없으므로 실제 exe로 바꿔 판별
 var aliasDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps");
 var alias = Directory.Exists(aliasDir)
