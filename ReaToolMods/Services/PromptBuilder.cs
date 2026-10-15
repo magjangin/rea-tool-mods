@@ -29,6 +29,7 @@ public static class PromptBuilder
         AppendHeader(sb, ctx);
         AppendWorkspace(sb, ctx);
         AppendTools(sb, ctx);
+        if (ctx.Profile.IsUnity) AppendUnityGuardrails(sb, ctx);
         sb.AppendLine("## 수행 지침");
         sb.AppendLine(Steps(ctx).Trim());
         sb.AppendLine();
@@ -139,6 +140,30 @@ public static class PromptBuilder
         sb.AppendLine("- REA MCP 도구(open_binary, binary_overview, procedure_pseudo_code 등)가 연결되어 있으면 정적 분석에 우선 사용해줘.");
         if (ctx.Profile.RequiredTools.Any(id => ctx.Tools[id].Path?.Contains(' ') == true))
             sb.AppendLine("- 경로에 공백이 있으므로 PowerShell에서는 `& \"경로\" 인자` 형태로 실행해줘.");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Unity 게임 전용 가드레일. 수행 지침보다 먼저 통과해야 하는 확인 단계입니다 (docs/USAGE_SCOPE.md 0·5절 반영).
+    /// </summary>
+    private static void AppendUnityGuardrails(StringBuilder sb, PromptContext ctx)
+    {
+        var w = ctx.WorkDir;
+        sb.AppendLine("## 시작 전 확인 (Unity 게임 가드레일)");
+        sb.AppendLine("아래 확인을 **먼저** 마치고, 하나라도 통과하지 못하면 '수행 지침'을 시작하지 말고 이유와 근거를 보고한 뒤 멈춰줘. 결과는 `PROGRESS.md`에 남겨줘.");
+        sb.AppendLine("1. **목적·구매 확인:** 이 게임을 무엇을 위해 분석하는지 한 문장으로 확인해줘. 목적이 없거나 숨겨야 한다면 멈춰. " +
+                      $"구매 내역(스토어 라이브러리 캡처, 영수증, 주문 번호 등)이 '{w}' 안에 있는지 직접 확인해줘. 없으면 \"샀다\"는 말만으로는 시작하지 말고 내게 요청해줘.");
+        sb.AppendLine("2. **온라인 여부 확정 (구조 → 덤프 → 웹 검색 순서):** 파일 이름이나 Unity 백엔드만 보고 판단하지 마.");
+        sb.AppendLine("   - 구조(읽기만): 난독화·보호 흔적과 네트워크 엔진·매치메이킹·안티치트·로그인 관련 파일을 찾아줘. 보호 흔적은 복호화하지 말고 \"보호됨\"이라고만 기록해줘.");
+        sb.AppendLine("   - 덤프(읽기 전용): 서버 주소, 매치메이킹, 계정·로그인, 안티치트 관련 클래스와 문자열, 싱글플레이 전용 기능이 분리되어 있는지만 봐줘.");
+        sb.AppendLine("   - 웹 검색: 위에서 찾은 구체적인 이름과 게임 이름으로 제작사 모드 정책, EULA, 스토어 페이지를 찾고 출처 링크를 남겨줘.");
+        sb.AppendLine("   - 확정은 근거를 내게 보여 주고 내가 확인한 뒤에만 해줘. 난독화된 이름을 추측해서 단정하지 마. 근거가 엇갈리면 \"불확실\"로 두고 내게 물어줘.");
+        sb.AppendLine("3. **받아들여지는 근거 찾기:** 제작사의 모드 정책·공식 SDK, EULA의 리버싱·수정 조항, 같은 일을 공개적으로 해 온 커뮤니티 관행 중 내 목적에 맞는 근거를 찾아줘. 근거가 없거나 불분명하면 시작하지 말고 멈춰줘.");
+        sb.AppendLine("4. **온라인으로 확정되면** 모딩을 멈추고 제작사가 허락한 범위(공식 모드 도구·SDK·워크샵, 정책에 명시된 항목)만 안내해줘. " +
+                      "허락도 금지도 불분명하면 회색지대 후보(싱글플레이 부분만, 다른 플레이어에 영향 없는 클라이언트 전용 변경)를 근거와 \"확인되지 않은 것\"과 함께 보여 주고, 범위는 내가 고르게 해줘. 후보도 못 찾으면 멈춰.");
+        sb.AppendLine("5. **어떤 경우에도 하지 마:** 서버 통신·인증·안티치트 우회와 패킷 변조, 다른 플레이어에게 보이는 능력·랭킹·재화·거래 변경, 메모리 읽기·쓰기로 우위 확보(핵), 사설 서버 제작·운영, 라이선스·DRM·체험판 제한 제거(크랙).");
+        sb.AppendLine("6. **클로닝 금지:** 결과물은 원본에 붙는 작은 패치(모드)로 한정해줘. 원본을 대신할 복제품을 만들지 말고, 디컴파일한 코드와 추출한 리소스(이미지·사운드·문구)를 복사해 옮기거나 내 PC 밖으로 내보내지 마. " +
+                      "참고가 필요하면 동작을 글로 정리한 뒤 그 메모를 보고 새로 작성해줘.");
         sb.AppendLine();
     }
 
