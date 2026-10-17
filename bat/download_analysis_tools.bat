@@ -8,9 +8,10 @@ echo.
 
 set "TOOLS_DIR=%~dp0..\tools"
 if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
+for %%I in ("%TOOLS_DIR%") do set "TOOLS_DIR=%%~fI"
 
 :: 1. .NET DLL / EXE Decompiler (ilspycmd)
-echo [1/6] Checking and installing .NET analysis tool (ilspycmd)...
+echo [1/7] Checking and installing .NET analysis tool (ilspycmd)...
 dotnet tool update -g ilspycmd > nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo  - ilspycmd ready: installed or updated globally.
@@ -21,7 +22,7 @@ if %ERRORLEVEL% equ 0 (
 echo.
 
 :: 2. Electron / JS App Unpacker (@electron/asar)
-echo [2/6] Checking APP / Electron package (.asar) tool...
+echo [2/7] Checking APP / Electron package (.asar) tool...
 call npm install -g @electron/asar --silent > nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo  - @electron/asar ready: npx asar command is available.
@@ -31,7 +32,7 @@ if %ERRORLEVEL% equ 0 (
 echo.
 
 :: 3. Android APK Decompiler (JADX latest release)
-echo [3/6] Downloading and setting up APK decompiler (JADX)...
+echo [3/7] Downloading and setting up APK decompiler (JADX)...
 set "JADX_DIR=%TOOLS_DIR%\jadx"
 if exist "%JADX_DIR%\bin\jadx.bat" (
     echo  - JADX is already installed: %JADX_DIR%
@@ -48,7 +49,7 @@ if exist "%JADX_DIR%\bin\jadx.bat" (
 echo.
 
 :: 4. Android APK Resource Tool (Apktool)
-echo [4/6] Setting up APK resource decoder (Apktool)...
+echo [4/7] Setting up APK resource decoder (Apktool)...
 set "APKTOOL_DIR=%TOOLS_DIR%\apktool"
 if not exist "%APKTOOL_DIR%" mkdir "%APKTOOL_DIR%"
 if exist "%APKTOOL_DIR%\apktool.jar" (
@@ -72,7 +73,7 @@ if exist "%APKTOOL_DIR%\apktool.jar" (
 echo.
 
 :: 5. Unity IL2CPP metadata dumper (Il2CppDumper)
-echo [5/6] Setting up Unity IL2CPP dumper (Il2CppDumper)...
+echo [5/7] Setting up Unity IL2CPP dumper (Il2CppDumper)...
 set "IL2CPPDUMPER_DIR=%TOOLS_DIR%\il2cppdumper"
 if exist "%IL2CPPDUMPER_DIR%\Il2CppDumper.exe" (
     echo  - Il2CppDumper is already installed: %IL2CPPDUMPER_DIR%
@@ -98,7 +99,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 echo.
 
 :: 6. Unity IL2CPP alternative dumper (Cpp2IL, newer metadata versions)
-echo [6/6] Setting up Unity IL2CPP alternative dumper (Cpp2IL)...
+echo [6/7] Setting up Unity IL2CPP alternative dumper (Cpp2IL)...
 set "CPP2IL_DIR=%TOOLS_DIR%\cpp2il"
 if exist "%CPP2IL_DIR%\Cpp2IL.exe" (
     echo  - Cpp2IL is already installed: %CPP2IL_DIR%
@@ -115,6 +116,51 @@ if exist "%CPP2IL_DIR%\Cpp2IL.exe" (
 )
 echo.
 
+:: 7. Ghidra native decompiler (needs JDK 21+; REA reads GHIDRA_INSTALL_DIR)
+echo [7/7] Setting up Ghidra (native decompiler, JDK 21+ required)...
+set "JDK21="
+for /f "usebackq delims=" %%J in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$d = Get-ChildItem 'C:\Program Files\Eclipse Adoptium','C:\Program Files\Java','C:\Program Files\Microsoft' -Directory -Filter 'jdk-*' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^jdk-(\d+)' -and [int]$Matches[1] -ge 21 -and (Test-Path (Join-Path $_.FullName 'bin\javac.exe')) } | Sort-Object Name -Descending | Select-Object -First 1; if ($d) { $d.FullName }"`) do set "JDK21=%%J"
+if not defined JDK21 (
+    echo  - JDK 21+ not found. Installing Temurin 21 via winget...
+    winget install --id EclipseAdoptium.Temurin.21.JDK --source winget --silent --accept-package-agreements --accept-source-agreements
+    for /f "usebackq delims=" %%J in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$d = Get-ChildItem 'C:\Program Files\Eclipse Adoptium' -Directory -Filter 'jdk-21*' -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1; if ($d) { $d.FullName }"`) do set "JDK21=%%J"
+)
+if defined JDK21 (
+    echo  - JDK 21+ ready: !JDK21!
+    setx JAVA_HOME "!JDK21!" > nul
+) else (
+    echo  - Warning: JDK 21+ install failed. Install Temurin 21 manually, then rerun.
+)
+set "GHIDRA_DIR=%TOOLS_DIR%\ghidra"
+if not defined GHIDRA_INSTALL_DIR for /f "tokens=2,*" %%A in ('reg query HKCU\Environment /v GHIDRA_INSTALL_DIR 2^>nul') do set "GHIDRA_INSTALL_DIR=%%B"
+if defined GHIDRA_INSTALL_DIR if exist "%GHIDRA_INSTALL_DIR%\ghidraRun.bat" (
+    echo  - Ghidra is already configured: %GHIDRA_INSTALL_DIR%
+    goto :ghidra_done
+)
+for /d %%G in ("%GHIDRA_DIR%\ghidra_*") do if exist "%%G\ghidraRun.bat" set "GHIDRA_FOUND=%%G"
+if not defined GHIDRA_FOUND (
+    echo  - Downloading latest Ghidra release zip from GitHub ^(about 570 MB^)...
+    if not exist "%GHIDRA_DIR%" mkdir "%GHIDRA_DIR%"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "$ProgressPreference = 'SilentlyContinue';" ^
+        "try {" ^
+        "  $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest';" ^
+        "  $zip = $rel.assets | Where-Object { $_.name -like 'ghidra_*_PUBLIC_*.zip' } | Select-Object -First 1;" ^
+        "  if ($zip) { Write-Host '  Downloading:' $zip.name; $f = '%GHIDRA_DIR%\ghidra.zip'; Invoke-WebRequest -Uri $zip.browser_download_url -OutFile $f; if ((Get-Item $f).Length -ne $zip.size) { Remove-Item $f -Force; throw 'size mismatch' }; Expand-Archive -Path $f -DestinationPath '%GHIDRA_DIR%' -Force; Remove-Item $f -Force; Write-Host '  Ghidra extracted.'; } else { Write-Host '  Could not find Ghidra release asset.'; }" ^
+        "} catch { Write-Host '  Failed to download Ghidra:' $_ }"
+    for /d %%G in ("%GHIDRA_DIR%\ghidra_*") do if exist "%%G\ghidraRun.bat" set "GHIDRA_FOUND=%%G"
+)
+if defined GHIDRA_FOUND (
+    setx GHIDRA_INSTALL_DIR "!GHIDRA_FOUND!" > nul
+    echo  - GHIDRA_INSTALL_DIR set: !GHIDRA_FOUND!
+    set "GHIDRA_INSTALL_DIR=!GHIDRA_FOUND!"
+    echo    Restart the terminal / Claude app so REA picks up the new variables.
+) else (
+    echo  - Warning: Ghidra not installed. Check network or GitHub API limits.
+)
+:ghidra_done
+echo.
+
 echo ===================================================================
 echo   [Setup Complete] All analysis tools are ready:
 echo   - Tools directory  : %TOOLS_DIR%
@@ -124,6 +170,7 @@ echo   - APK Dex Decompile: %TOOLS_DIR%\jadx\bin\jadx.bat
 echo   - APK Resource     : %TOOLS_DIR%\apktool\apktool.bat
 echo   - Unity IL2CPP     : %TOOLS_DIR%\il2cppdumper\Il2CppDumper.exe
 echo   - Unity IL2CPP alt : %TOOLS_DIR%\cpp2il\Cpp2IL.exe
+echo   - Native (Ghidra)  : !GHIDRA_INSTALL_DIR! ^(JDK 21+^)
 echo ===================================================================
 echo.
 pause

@@ -5,6 +5,7 @@
 
 # Local downloaded tools
 tools/*
+!tools/fast_il2cpp_disasm.py
 !tools/pe_slice.py
 *.zip
 
