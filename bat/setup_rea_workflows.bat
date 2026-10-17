@@ -11,7 +11,21 @@ if not exist "%REA_SOURCE%" (
     set "REA_SOURCE=H:\source\repos\rea-main"
 )
 
-echo [1/3] Checking REA source path: %REA_SOURCE%
+:: 0. Prerequisite checks (fail early with a clear message)
+where node >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Node.js/npm not found. Install Node.js LTS first, then rerun.
+    goto :end
+)
+if not defined GHIDRA_INSTALL_DIR for /f "tokens=2,*" %%A in ('reg query HKCU\Environment /v GHIDRA_INSTALL_DIR 2^>nul') do set "GHIDRA_INSTALL_DIR=%%B"
+if defined GHIDRA_INSTALL_DIR if exist "%GHIDRA_INSTALL_DIR%\ghidraRun.bat" (
+    echo [OK] Ghidra: %GHIDRA_INSTALL_DIR%
+) else (
+    echo [WARN] Ghidra not configured. Run download_analysis_tools.bat for native-binary analysis.
+)
+if not defined GHIDRA_INSTALL_DIR echo [WARN] Ghidra not configured. Run download_analysis_tools.bat for native-binary analysis.
+echo.
+echo [1/4] Checking REA source path: %REA_SOURCE%
 if not exist "%REA_SOURCE%" (
     echo [INFO] Local repo path not found: %REA_SOURCE%
     echo Using online npm package for REA tools.
@@ -19,7 +33,7 @@ if not exist "%REA_SOURCE%" (
 echo.
 
 :: 1. Copy workflow skills using PowerShell to avoid xcopy prompt hangs
-echo [2/3] Synchronizing REA workflow skills to .agents/skills...
+echo [2/4] Synchronizing REA workflow skills to .agents/skills...
 set "TARGET_SKILLS=%~dp0..\.agents\skills"
 
 if exist "%REA_SOURCE%\.agents\skills" (
@@ -31,7 +45,7 @@ if exist "%REA_SOURCE%\.agents\skills" (
 echo.
 
 :: 2. Ensure rea-agents CLI is installed
-echo [3/3] Checking REA CLI and configuring agent MCP integration...
+echo [3/4] Checking REA CLI and configuring agent MCP integration...
 where rea >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     echo   - REA CLI not found globally. Installing rea-agents via npm...
@@ -41,8 +55,9 @@ if %ERRORLEVEL% neq 0 (
 :: Run rea setup with automated flags to avoid interactive terminal freezing
 echo   - Running REA agent configuration (auto-detect all agents)...
 call rea setup --all-detected --yes
+set "REA_RC=%ERRORLEVEL%"
 
-if %ERRORLEVEL% equ 0 (
+if "%REA_RC%"=="0" (
     echo.
     echo ===================================================================
     echo   [SUCCESS] REA workflows and MCP integration configured!
@@ -52,10 +67,11 @@ if %ERRORLEVEL% equ 0 (
 ) else (
     echo.
     echo ===================================================================
-    echo   [NOTICE] REA setup finished with code %ERRORLEVEL%.
+    echo   [NOTICE] REA setup finished with code %REA_RC%.
     echo   If you need interactive selection, run: rea setup
     echo ===================================================================
 )
 
 echo.
+:end
 pause

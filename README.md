@@ -49,10 +49,10 @@
 | 일반 | ⚙️ **DLL** | `ilspycmd -p` C# 프로젝트 복원, `dotnet build`, 후킹 포인트 정리 | `-dotnet` |
 | 일반 | 📱 **APK** | `JADX` Java 디컴파일 + `Apktool` 리소스 추출, ADB 실행 | `-android` |
 | 일반 | 📦 **APP** | `@electron/asar` 언팩, IPC 분석, `npx electron .` 실행 | `-electron` |
-| Unity | ⚡ **IL2CPP** | `Il2CppDumper`(실패 시 `Cpp2IL`) 덤프 → DummyDll 시그니처 → REA로 GameAssembly 분석 → 모드 스켈레톤 | `-unity-il2cpp` |
-| Unity | 🐵 **Mono** | `Managed\Assembly-CSharp.dll` 디컴파일(읽기용) → BepInEx/MelonLoader + HarmonyX 모드 프로젝트 빌드 | `-unity-mono` |
-| Unity | 📲 **Unity APK** | APK/XAPK 압축 해제 → `libil2cpp.so` + `global-metadata.dat` 덤프 또는 Mono 디컴파일 → 녹스 실행 검증 | `-unity-android` |
-| Unity | 🍎 **Unity APP** | iOS IPA / macOS .app — FairPlay 암호화 확인 후 UnityFramework·GameAssembly.dylib 덤프 | `-unity-app` |
+| Unity | ⚡ **IL2CPP** | `Il2CppDumper`(실패 시 `Cpp2IL`) 덤프 → DummyDll 시그니처 → `pe_slice` 조각 PE를 REA로 분석 → 모드 스켈레톤 | `-unity-il2cpp` |
+| Unity | 🐵 **Mono** | `Managed\Assembly-CSharp.dll` 디컴파일(읽기용, 전체는 백그라운드 · 관심 클래스는 `ilspycmd -t`로 바로) → BepInEx/MelonLoader + HarmonyX 모드 프로젝트 빌드 | `-unity-mono` |
+| Unity | 📲 **Unity APK** | APK/XAPK 압축 해제 → `libil2cpp.so` + `global-metadata.dat` 덤프(또는 Mono 디컴파일) → `il2cpp_asm` 주석 어셈블리(Windows REA는 ELF를 못 엶) → 녹스 실행 검증 | `-unity-android` |
+| Unity | 🍎 **Unity APP** | iOS IPA / macOS .app — `il2cpp_asm --check-encryption`으로 FairPlay 확인 후 UnityFramework·GameAssembly.dylib 덤프 → `il2cpp_asm` 주석 어셈블리 | `-unity-app` |
 
 ### 2. 🔎 파일 내용 기반 자동 판별 + 확장자 검사
 확장자만 보지 않고 **파일 시그니처 · 주변 폴더 구조 · 압축 엔트리**를 확인합니다 (`Services/TargetDetector.cs`).
@@ -83,11 +83,29 @@
 Win32 창 제어(`WindowsAutomation`)로 현재 열린 앱을 찾아 `Ctrl + V` ➔ `Enter`를 자동 입력합니다. 창이 없으면 앱을 실행하고 최대 10초간 창을 기다립니다.
 
 ### 6. ⚡ 자동화 배치 스크립트 모음 (`bat/`)
-- `download_analysis_tools.bat`: `ilspycmd`, `@electron/asar`, `JADX`, `Apktool`, **`Il2CppDumper`**(비대화식 실행 설정 포함), **`Cpp2IL`** 다운로드
+- `download_analysis_tools.bat`: `ilspycmd`, `@electron/asar`, `JADX`, `Apktool`, **`Il2CppDumper`**(비대화식 실행 설정 포함), **`Cpp2IL`**, **Ghidra**(JDK 21+ 자동 설치, `GHIDRA_INSTALL_DIR` 설정 — REA 네이티브 분석용) 다운로드
 - `check_android_emulator_env.bat`: **CPU 가상화(VT) · Hyper-V 계열 기능 · 녹스 설치/실행 · ADB 연결 · 기기 ABI** 점검 (종료 코드 0=준비됨, 1=문제, 2=경고)
 - `setup_rea_workflows.bat`: [morluto/rea](https://github.com/morluto/rea) 워크플로우 스킬 동기화 및 MCP 에이전트 연동
 - `run_tool.bat`: Avalonia UI 앱 원클릭 실행기
 - `run_prompt_tests.bat`: 8종 타겟 × 작업 폴더 상태별 프롬프트 생성 검증 + 프롬프트 속 명령을 실제 도구로 실행 ([결과](docs/PROMPT_TEST.md))
+- `pe_slice.bat`: 큰 x64 PE(GameAssembly.dll 등)에서 **보고 싶은 함수 주변 페이지만 담은 조각 PE**를 만듭니다 (`tools\pe_slice.py`, Python 3 + `capstone` 권장).
+  REA(Windows Ghidra)로 70MB짜리 GameAssembly.dll을 통째로 열면 전체 자동 분석이 MCP 시간 제한을 넘겨 **타임아웃**이 납니다. 조각 PE(수백 KB)는 1분 안에 열리고, `script.json` 이름이 export로 들어가 의사코드에 메서드·문자열 이름이 그대로 보입니다.
+
+  ```bat
+  bat\pe_slice.bat --dll "<게임>\GameAssembly.dll" --script-json "<작업 폴더>\il2cpp_dump\script.json" --class TileDataLoader --out "<작업 폴더>\slices\TileDataLoader.dll"
+  ```
+  - 메서드 하나: `--method "TileDataLoader::GenerateNote"` (script.json의 `$$` 대신 `::` — PowerShell·bash가 큰따옴표 안 `$$`를 변수로 바꾸기 때문), 주소: `--rva 0x66F670` (여러 번 써서 한 조각에 묶기 가능)
+  - 출력 끝의 'REA 다음 단계'대로 `open_binary`(조각 PE) → `procedure_pseudo_code`(출력된 VA)
+  - 실측 (KAMITSUBAKI CITY ENSEMBLE, 70MB): 메서드 1개 조각 0.8초·110KB, 클래스 1개(함수 11개) 1.3초·370KB, REA 열기+디컴파일 1분 이내
+- `il2cpp_asm.bat`: IL2CPP 메서드를 **이름 주석이 달린 어셈블리**로 출력합니다 (`tools\il2cpp_asm.py`, ARM64·x64 / ELF·Mach-O·PE, `capstone` 필요).
+  Windows REA는 PE만 열 수 있어서 안드로이드 `libil2cpp.so`(ELF)와 iOS `UnityFramework`(Mach-O)는 REA로 볼 수 없습니다. dump.cs의 파일 오프셋으로 함수 바이트를 바로 읽어 `bl`/`call` 대상 메서드와 ADRP+LDR/ADD·RIP 상대로 읽는 문자열·TypeInfo 이름을 붙입니다 (같은 주소에 합쳐진 메서드는 `(+N개 같은 주소)`로 표시).
+
+  ```bat
+  bat\il2cpp_asm.bat --binary "<apk_unzipped>\lib\arm64-v8a\libil2cpp.so" --dump "<작업 폴더>\il2cpp_dump\dump.cs" --script-json "<작업 폴더>\il2cpp_dump\script.json" --class PlayerController --out "<작업 폴더>\logs\PlayerController.asm"
+  bat\il2cpp_asm.bat --check-encryption "<Game.app>\Frameworks\UnityFramework.framework\UnityFramework"
+  ```
+  - `--check-encryption`: Mach-O의 `LC_ENCRYPTION_INFO` cryptid 확인 (REA `inspect_macho`는 macOS 전용). 암호화됐으면 종료 코드 2
+  - 함수 끝은 dump.cs의 다음 메서드 시작으로 추정합니다. 유니버설 Mach-O는 `--arch arm64|x64`
 
 ---
 
@@ -110,7 +128,13 @@ rea-tool-mods/
 │   ├── check_android_emulator_env.ps1
 │   ├── setup_rea_workflows.bat           # REA 워크플로우 동기화 & MCP 에이전트 설정
 │   ├── run_prompt_tests.bat              # 프롬프트 테스트 실행
+│   ├── pe_slice.bat                      # 큰 PE → 함수 주변만 담은 조각 PE (REA 타임아웃 회피)
+│   ├── il2cpp_asm.bat                    # IL2CPP 메서드 → 이름 주석 어셈블리 (ELF · Mach-O · PE) / Mach-O 암호화 확인
 │   └── run_tool.bat                      # 앱 원클릭 실행 런처
+│
+├── tools/                                # 아래 스크립트 외에는 다운로드한 도구 (git 제외)
+│   ├── pe_slice.py                       # 조각 PE 생성기
+│   └── il2cpp_asm.py                     # 주석 디스어셈블러 · cryptid 확인
 │
 ├── ReaToolMods/                          # Avalonia MVVM 프로젝트
 │   ├── Models/

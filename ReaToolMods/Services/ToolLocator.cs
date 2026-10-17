@@ -64,6 +64,18 @@ public static class ToolLocator
                 "Android SDK platform-tools 설치 또는 녹스(nox_adb.exe) 설치"),
             new ToolLocation(ToolId.ReaCli, "REA CLI", "rea",
                 FindOnPath("rea"), @"npm install -g rea-agents (또는 bat\setup_rea_workflows.bat 실행)"),
+            // 큰 PE를 REA로 통째로 열면 Ghidra 전체 분석이 MCP 시간 제한을 넘기므로, 함수 주변만 담은 조각 PE를 만듦
+            new ToolLocation(ToolId.PeSlice, "PE 조각 추출기", "pe_slice",
+                FindPython() != null && File.Exists(Path.Combine(ToolsDir, "pe_slice.py")) && BatPath("pe_slice.bat") is { } slicer
+                    ? ExistingFile(slicer)
+                    : null,
+                @"Python 3 설치 후 pip install capstone (tools\pe_slice.py · bat\pe_slice.bat 필요)"),
+            // Windows REA는 PE만 열 수 있으므로 libil2cpp.so(ELF) · UnityFramework(Mach-O)는 dump.cs 오프셋으로 직접 디스어셈블
+            new ToolLocation(ToolId.Il2CppAsm, "IL2CPP 주석 디스어셈블러", "il2cpp_asm",
+                FindPython() != null && File.Exists(Path.Combine(ToolsDir, "il2cpp_asm.py")) && BatPath("il2cpp_asm.bat") is { } asm
+                    ? ExistingFile(asm)
+                    : null,
+                @"Python 3 설치 후 pip install capstone (tools\il2cpp_asm.py · bat\il2cpp_asm.bat 필요)"),
         };
 
         return list.ToDictionary(t => t.Id);
@@ -179,6 +191,19 @@ public static class ToolLocator
     }
 
     private static string? ExistingFile(string path) => File.Exists(path) ? path : null;
+
+    /// <summary>
+    /// PATH의 python. Python이 없을 때 WindowsApps에 있는 스토어 안내용 별칭(AppInstallerPythonRedirector)은 제외합니다.
+    /// </summary>
+    private static string? FindPython()
+    {
+        var python = FindOnPath("python");
+        if (python == null || !python.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase)) return python;
+        return AppExecutionAlias.TryResolve(python, out var target) && target != null &&
+               !target.Contains("PythonRedirector", StringComparison.OrdinalIgnoreCase)
+            ? python
+            : null;
+    }
 
     private static string? FindRepoRoot()
     {

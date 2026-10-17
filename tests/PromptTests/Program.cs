@@ -55,6 +55,43 @@ string Zip(string path, params (string Name, byte[] Data)[] entries)
 }
 var ggm = Encoding.ASCII.GetBytes("\0\0\0\0\0\0\0\x16\0\0\0\02022.3.10f1\0rest");
 
+// AArch64 ELF: 0x1000 Fake$$Run = adrp/ldr(Fake_TypeInfo @0x5010) · adrp/add("hello" @0x5018) · bl Fake$$Helper(0x1040) · ret
+byte[] ArmElf()
+{
+    var b = new byte[0x1080];
+    new byte[] { 0x7F, 0x45, 0x4C, 0x46, 2, 1, 1, 0 }.CopyTo(b, 0);
+    BitConverter.GetBytes((ushort)3).CopyTo(b, 0x10);      // ET_DYN
+    BitConverter.GetBytes((ushort)0xB7).CopyTo(b, 0x12);   // EM_AARCH64
+    uint[] code = [0x90000020, 0xF9400800, 0x90000021, 0x91006021, 0x9400000C, 0xD65F03C0];
+    for (var i = 0; i < code.Length; i++) BitConverter.GetBytes(code[i]).CopyTo(b, 0x1000 + 4 * i);
+    BitConverter.GetBytes(0xD65F03C0u).CopyTo(b, 0x1040);
+    return b;
+}
+// arm64 Mach-O 헤더 + LC_ENCRYPTION_INFO_64 하나
+byte[] MachO(uint cryptid)
+{
+    var m = new byte[32 + 24];
+    uint[] header = [0xFEEDFACF, 0x0100000C, 0, 6, 1, 24, 0, 0];
+    uint[] enc = [0x2C, 24, 0x4000, 0x1000, cryptid, 0];
+    for (var i = 0; i < header.Length; i++) BitConverter.GetBytes(header[i]).CopyTo(m, 4 * i);
+    for (var i = 0; i < enc.Length; i++) BitConverter.GetBytes(enc[i]).CopyTo(m, 32 + 4 * i);
+    return m;
+}
+// ArmElf()에 맞춘 dump.cs · script.json
+void PutFakeDump(string dumpDir)
+{
+    Put(Path.Combine(dumpDir, "dump.cs"), Encoding.UTF8.GetBytes(
+        "public class Fake // TypeDefIndex: 1\n{\n\t// RVA: 0x1000 Offset: 0x1000 VA: 0x1000\n\tpublic void Run() { }\n" +
+        "\t// RVA: 0x1040 Offset: 0x1040 VA: 0x1040\n\tpublic void Helper() { }\n}\n"));
+    Put(Path.Combine(dumpDir, "script.json"), JsonSerializer.SerializeToUtf8Bytes(new
+    {
+        ScriptMethod = new[] { new { Address = 0x1000, Name = "Fake$$Run" }, new { Address = 0x1040, Name = "Fake$$Helper" } },
+        ScriptString = new[] { new { Address = 0x5018, Value = "hello" } },
+        ScriptMetadata = new[] { new { Address = 0x5010, Name = "Fake_TypeInfo" } },
+        ScriptMetadataMethod = Array.Empty<object>()
+    }));
+}
+
 // ───────── fixtures ─────────
 var il2Root = Path.Combine(fx, "IlGame");
 var il2Exe = Path.Combine(il2Root, "IlGame.exe");
@@ -74,11 +111,11 @@ var libDll = Path.Combine(fx, "Libs", "Sample.Library.dll");
 Copy(managedDll, libDll);
 
 var unityApk = Zip(Path.Combine(fx, "unity game.apk"),
-    ("classes.dex", [1]), ("lib/arm64-v8a/libil2cpp.so", [0x7F, 0x45, 0x4C, 0x46, 2, 1, 1, 0]), ("lib/arm64-v8a/libunity.so", [1]),
+    ("classes.dex", [1]), ("lib/arm64-v8a/libil2cpp.so", ArmElf()), ("lib/arm64-v8a/libunity.so", [1]),
     ("assets/bin/Data/Managed/Metadata/global-metadata.dat", Meta(31)), ("assets/bin/Data/globalgamemanagers", ggm));
 
 var ipa = Zip(Path.Combine(fx, "unity game.ipa"),
-    ("Payload/Game.app/Frameworks/UnityFramework.framework/UnityFramework", [0xCF, 0xFA, 0xED, 0xFE]),
+    ("Payload/Game.app/Frameworks/UnityFramework.framework/UnityFramework", MachO(cryptid: 0)),
     ("Payload/Game.app/Data/Managed/Metadata/global-metadata.dat", Meta(29)));
 
 var plainApk = Zip(Path.Combine(fx, "plain app.apk"), ("classes.dex", [1]), ("AndroidManifest.xml", [3, 0, 8, 0]));
@@ -191,6 +228,34 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
             errs.Add($"단계에서 {t.CommandName} 사용하지만 필요 도구 목록에 없음");
     }
 
+    // 타임아웃: '같은 오류 2번이면 멈춤'에서 빼고, 다시 하라고 하면 나눠서 다시 하게
+    Need(p.Contains("**타임아웃은 위 규칙에 넣지 마.**") && p.Contains("타임아웃을 이유로 거절하지 말고"), "타임아웃 재시도 규칙");
+    var slicer = profile.RequiredTools.Contains(ToolId.PeSlice);
+    Need(slicer == p.Contains("통째로 열지 마"), slicer ? "큰 PE를 통째로 열지 말라는 안내 없음" : "조각 PE 안내가 다른 타겟에 노출");
+    if (profile.Kind == TargetKind.UnityIl2Cpp)
+    {
+        Need(!p.Contains("REA로 GameAssembly.dll을 열고"), "GameAssembly.dll 통째로 열기 지시가 남음");
+        Need(stepsPart.Contains($"--script-json \"{w}\\il2cpp_dump\\script.json\""), "pe_slice가 1단계 덤프의 script.json을 가리키지 않음");
+    }
+
+    // 오래 걸리는 덤프 · 디컴파일은 백그라운드 + 로그
+    Need(p.Contains("백그라운드로 실행하고, 끝났는지는 로그"), "오래 걸리는 명령의 백그라운드 실행 규칙");
+    // Mono: 통째로 디컴파일하는 동안 클래스 하나씩 볼 수 있게
+    if (profile.Kind == TargetKind.UnityMono)
+        Need(stepsPart.Contains("-t <네임스페이스.클래스명>") && stepsPart.Contains(" -l c "), "Mono: 클래스 단위 빠른 디컴파일 안내");
+    // APK · APP: Windows REA는 ELF · Mach-O를 못 여니 il2cpp_asm으로, inspect_macho(macOS 전용)는 쓰지 않게
+    var notPe = profile.Kind is TargetKind.UnityApk or TargetKind.UnityApp;
+    Need(notPe == p.Contains("REA는 PE만 열 수 있어"), notPe ? "ELF · Mach-O를 REA로 열지 말라는 안내 없음" : "ELF · Mach-O 안내가 다른 타겟에 노출");
+    if (notPe)
+    {
+        Need(!p.Contains("REA MCP 도구(open_binary") && !p.Contains("REA inspect_macho로") && !p.Contains("REA로 UnityFramework"),
+            "APK · APP에 REA로 네이티브 라이브러리를 열라는 지시가 남음");
+        Need(stepsPart.Contains($"--dump \"{w}\\il2cpp_dump\\dump.cs\" --script-json \"{w}\\il2cpp_dump\\script.json\""),
+            "il2cpp_asm이 덤프 산출물(dump.cs · script.json)을 가리키지 않음");
+    }
+    if (profile.Kind == TargetKind.UnityApp)
+        Need(stepsPart.Contains("il2cpp_asm --check-encryption \""), "Unity APP: 암호화 확인 명령");
+
     // 판별 정보가 있으면 자리표시자가 남지 않아야 함
     if (profile.Kind is TargetKind.UnityIl2Cpp or TargetKind.UnityMono)
         Need(!p.Contains("<게임"), "게임 경로 자리표시자 남음");
@@ -280,6 +345,20 @@ if (Has(ToolId.Il2CppDumper, ToolId.Cpp2Il))
     var (ccode, cout) = Run(cppCmd, 90);
     Check("B.실행", "Unity APK: Cpp2IL 옵션 파싱 통과 (가짜 바이너리라 이후 단계 실패는 정상)",
         cout.Contains("Using force options") && !cout.Contains("GetRuntimeOptionsFromCommandLine") && !cout.Contains("ERROR(S)"), FirstError(cout));
+
+    // il2cpp_asm: 압축 해제한 libil2cpp.so(ARM64)를 dump.cs 오프셋으로 읽어 BL · ADRP+LDR/ADD 이름이 붙는지
+    if (Has(ToolId.Il2CppAsm))
+    {
+        PutFakeDump(Path.Combine(w, "il2cpp_dump"));
+        var asmCmd = Command(prompt, ToolId.Il2CppAsm, "il2cpp_asm")!.Replace("<클래스명>", "Fake");
+        var (acode, aout) = Run(asmCmd, 60);
+        var asmFile = QuotedArgs(asmCmd)[^1];
+        var asm = File.Exists(asmFile) ? File.ReadAllText(asmFile) : "";
+        Check("B.실행", "Unity APK: il2cpp_asm --class (ARM64) → bl · adrp+ldr · adrp+add 이름 주석",
+            acode == 0 && asm.Contains("→ Fake$$Helper") && asm.Contains("[Fake_TypeInfo]") && asm.Contains("StringLiteral \"hello\""),
+            $"exit={acode} {Tail(aout)}");
+    }
+    else Skip("B.실행", "Unity APK: il2cpp_asm", Missing(ToolId.Il2CppAsm));
 }
 else Skip("B.실행", "Unity APK: bsdtar / Il2CppDumper / Cpp2IL", Missing(ToolId.Il2CppDumper, ToolId.Cpp2Il));
 
@@ -301,6 +380,27 @@ if (Has(ToolId.Il2CppDumper, ToolId.Cpp2Il))
         !cout.Contains("GetRuntimeOptionsFromCommandLine") && !cout.Contains("ERROR(S)") && cout.Contains("MainWithArgs"), FirstError(cout));
 }
 else Skip("B.실행", "IL2CPP: Il2CppDumper / Cpp2IL", Missing(ToolId.Il2CppDumper, ToolId.Cpp2Il));
+
+// B4-2. Unity IL2CPP PC — pe_slice 조각 PE (가짜 GameAssembly.dll = version.dll 복사본, script.json은 테스트가 만듦)
+if (Has(ToolId.PeSlice))
+{
+    var w = Path.Combine(work, "B4 il2cpp slice");
+    var prompt = Prompt(TargetKind.UnityIl2Cpp, il2Exe, w);
+    var cmd = Command(prompt, ToolId.PeSlice, "pe_slice")!.Replace("<클래스명>", "Fake");
+    var a = QuotedArgs(cmd);   // [0]=도구, [1]=GameAssembly.dll, [2]=script.json, [3]=조각 PE
+    var script = new
+    {
+        ScriptMethod = new[] { new { Address = PeEntryRva(a[1]), Name = "Fake$$Run" } },
+        ScriptString = Array.Empty<object>(), ScriptMetadata = Array.Empty<object>(), ScriptMetadataMethod = Array.Empty<object>()
+    };
+    Put(a[2], JsonSerializer.SerializeToUtf8Bytes(script));
+    var (code, output) = Run(cmd, 60);
+    var slice = File.Exists(a[3]) ? File.ReadAllBytes(a[3]) : [];
+    Check("B.실행", "IL2CPP: pe_slice --class → 조각 PE 생성, export에 script.json 이름",
+        code == 0 && slice.Length > 0x400 && slice[0] == 'M' && slice[1] == 'Z' && Encoding.ASCII.GetString(slice).Contains("Fake$$Run"),
+        $"exit={code}, {slice.Length} bytes {Tail(output)}");
+}
+else Skip("B.실행", "IL2CPP: pe_slice", Missing(ToolId.PeSlice));
 
 // B5. APP — asar extract
 {
@@ -324,6 +424,16 @@ if (Has(ToolId.Il2CppDumper))
     var dumpCmd = Command(prompt, ToolId.Il2CppDumper, "Il2CppDumper")!;
     var a = QuotedArgs(dumpCmd);
     Check("B.경로", "Unity APP: IPA 압축 해제 후 UnityFramework / metadata 경로 존재", code == 0 && File.Exists(a[1]) && File.Exists(a[2]), $"{a[1]}");
+
+    // 암호화 확인: inspect_macho(macOS 전용) 대신 il2cpp_asm --check-encryption이 같은 UnityFramework를 읽는지
+    if (Has(ToolId.Il2CppAsm))
+    {
+        var encCmd = Command(prompt, ToolId.Il2CppAsm, "il2cpp_asm")!;
+        var (ecode, eout) = Run(encCmd, 30);
+        Check("B.실행", "Unity APP: il2cpp_asm --check-encryption <UnityFramework> → cryptid=0",
+            encCmd.Contains("--check-encryption") && QuotedArgs(encCmd)[1] == a[1] && ecode == 0 && eout.Contains("cryptid=0"), $"exit={ecode} {Tail(eout)}");
+    }
+    else Skip("B.실행", "Unity APP: il2cpp_asm --check-encryption", Missing(ToolId.Il2CppAsm));
 }
 else Skip("B.실행", "Unity APP: IPA 압축 해제 경로", Missing(ToolId.Il2CppDumper));
 
@@ -450,6 +560,12 @@ static (int Code, string Output) Run(string commandLine, int timeoutSec)
     var e = p.StandardError.ReadToEndAsync();
     if (!p.WaitForExit(timeoutSec * 1000)) { p.Kill(true); return (-1, "TIMEOUT " + o.Result + e.Result); }
     return (p.ExitCode, o.Result + e.Result);
+}
+
+static int PeEntryRva(string path)
+{
+    var b = File.ReadAllBytes(path);
+    return BitConverter.ToInt32(b, BitConverter.ToInt32(b, 0x3C) + 24 + 16);   // OptionalHeader.AddressOfEntryPoint
 }
 
 static string FirstError(string s) =>

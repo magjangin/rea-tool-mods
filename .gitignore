@@ -4,7 +4,9 @@
 ## Get latest from `dotnet new gitignore`
 
 # Local downloaded tools
-tools/
+tools/*
+!tools/pe_slice.py
+!tools/il2cpp_asm.py
 *.zip
 
 # dotenv files

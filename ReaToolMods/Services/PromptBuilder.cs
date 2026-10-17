@@ -137,7 +137,17 @@ public static class PromptBuilder
                 : $"- {t.DisplayName} (`{t.CommandName}`): ❌ 설치되지 않음 → {t.InstallHint}. 설치할 수 없으면 해당 단계는 멈추고 알려줘.");
         }
 
-        sb.AppendLine("- REA MCP 도구(open_binary, binary_overview, procedure_pseudo_code 등)가 연결되어 있으면 정적 분석에 우선 사용해줘.");
+        if (NativeIsNotPe(ctx))
+            sb.AppendLine("- ⚠️ 이 PC(Windows)의 REA는 PE만 열 수 있어. libil2cpp.so(ELF) · UnityFramework · GameAssembly.dylib(Mach-O)는 REA `open_binary`로 열지 마 — 지원하지 않는 형식이라 실패만 해. " +
+                          "함수 본문은 `il2cpp_asm`으로 봐줘 (dump.cs 오프셋으로 바로 읽어 호출 대상 · 문자열 · TypeInfo 이름을 주석으로 붙여 줘, 몇 초면 끝나).");
+        else
+            sb.AppendLine("- REA MCP 도구(open_binary, binary_overview, procedure_pseudo_code 등)가 연결되어 있으면 정적 분석에 우선 사용해줘.");
+        if (UsesSlicer(ctx))
+        {
+            sb.AppendLine("- ⚠️ 10MB가 넘는 PE(GameAssembly.dll 등)는 REA `open_binary`로 통째로 열지 마. Ghidra가 파일 전체를 자동 분석하느라 응답이 MCP 시간 제한을 넘겨 타임아웃이 나. " +
+                          "보고 싶은 함수만 `pe_slice`로 조각 PE(수백 KB)를 만들어 열면 1분 안에 의사코드가 나와.");
+            sb.AppendLine("- REA가 앞선 호출 때문에 계속 응답이 없으면 `binary_session`으로 상태를 확인하고, 그래도 막혀 있으면 REA MCP 서버를 다시 시작해 달라고 내게 말해줘.");
+        }
         if (ctx.Profile.RequiredTools.Any(id => ctx.Tools[id].Path?.Contains(' ') == true))
             sb.AppendLine("- 경로에 공백이 있으므로 PowerShell에서는 `& \"경로\" 인자` 형태로 실행해줘.");
         sb.AppendLine();
@@ -174,6 +184,12 @@ public static class PromptBuilder
         sb.AppendLine($"- 단계를 마칠 때마다 '{w}\\PROGRESS.md'에 `[완료|진행중|막힘] 단계명 — 산출물 경로 — 메모` 형식으로 기록해줘. 다음 세션이 이 파일만 보고 이어갈 수 있어야 해.");
         sb.AppendLine($"- 실행한 명령과 핵심 출력은 '{w}\\logs\\'에 남기고, 확인된 사실과 추정을 구분해서 써줘.");
         sb.AppendLine("- 도구가 없거나 같은 오류가 2번 이상 반복되면 우회책을 계속 시도하지 말고 원인과 필요한 조치를 정리한 뒤 멈춰줘.");
+        var split = UsesSlicer(ctx) ? "큰 PE는 `pe_slice`로 함수 단위 조각을 만들어 REA로 열고, " : "";
+        sb.AppendLine("- 단, **타임아웃은 위 규칙에 넣지 마.** 도구가 고장 난 게 아니라 한 번에 맡긴 일이 너무 크다는 뜻이야. " +
+                      $"같은 호출을 그대로 반복하지 말고 더 작게 나눠서 바로 이어가줘 ({split}오래 걸리는 명령은 백그라운드로 돌리고 로그로 확인). " +
+                      "내가 다시 하라고 하면 타임아웃을 이유로 거절하지 말고 이렇게 나눠서 다시 해줘.");
+        sb.AppendLine($"- 덤프 · 디컴파일 · 압축 해제(Il2CppDumper, Cpp2IL, `ilspycmd -p`, jadx, apktool 등)는 큰 게임에서 몇 분 걸릴 수 있어. " +
+                      $"셸 도구 시간 제한에 걸리지 않게 출력을 '{w}\\logs\\' 아래 로그 파일로 남기면서 백그라운드로 실행하고, 끝났는지는 로그 마지막 줄과 산출물로 확인해줘.");
         sb.AppendLine("- 범위: 로컬·싱글플레이 분석과 모드 제작만. 온라인 게임의 안티치트/DRM/서버 검증 우회, 결제·재화 조작, 암호화된 바이너리나 메타데이터의 복호화는 하지 마.");
         sb.AppendLine();
         sb.AppendLine("## 최종 보고");
@@ -201,6 +217,8 @@ public static class PromptBuilder
         return $"""
             1. 정적 분석 및 의사코드 덤프
                - REA(open_binary → binary_overview → list_procedures / procedure_pseudo_code)로 Import/Export, 문자열, 엔트리포인트를 정리해 '{w}\decompiled'에 저장해줘.
+               - 대상이 10MB가 넘는 x64 PE면 통째로 열지 말고, Export 표 등에서 관심 함수의 RVA를 먼저 찾은 뒤 조각 PE로 열어줘:
+                 `{Tool(ctx, ToolId.PeSlice)} --dll "{Target(ctx)}" --rva <함수 RVA> --out "{w}\slices\sub_<RVA>.dll"`
                - 메인 엔트리포인트와 핵심 로직의 제어 흐름을 '{w}\docs\analysis.md'에 명세서로 정리해줘.
             2. 스켈레톤 복원 및 실행 테스트
                - 핵심 동작을 재현/테스트할 수 있는 C/C++ 또는 C# 스켈레톤 프로젝트를 '{w}\skeleton'에 만들어줘.
@@ -279,8 +297,14 @@ public static class PromptBuilder
             2. 시그니처 탐색
                `{Tool(ctx, ToolId.Ilspy)} -p -o "{w}\src_dummy" "{w}\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`
                - DummyDll은 메서드 본문이 비어 있으므로 클래스/필드/메서드 시그니처와 RVA 주석만 참고해줘.
-            3. 네이티브 로직 분석
-               - REA로 GameAssembly.dll을 열고 script.json의 주소/이름을 대응시켜 관심 메서드의 의사코드를 확인해줘.
+            3. 네이티브 로직 분석 (GameAssembly.dll 원본은 REA로 통째로 열지 마 — 타임아웃 남)
+               - 관심 클래스(또는 메서드)만 조각 PE로 만들어줘. script.json 이름이 export로 들어가서 의사코드에 메서드·문자열 이름이 그대로 보여:
+                 `{Tool(ctx, ToolId.PeSlice)} --dll "{gameAssembly}" --script-json "{w}\il2cpp_dump\script.json" --class <클래스명> --out "{w}\slices\<클래스명>.dll"`
+               - 메서드 하나만 볼 땐 `--class` 대신 `--method "<클래스명>::<메서드명>"`(셸이 `$$`를 변수로 바꾸니 `::`로 써줘), 주소로는 `--rva 0x<dump.cs의 RVA>`. 여러 번 써서 한 조각에 묶어도 돼.
+               - 출력 끝의 'REA 다음 단계'대로 REA `open_binary`(조각 PE) → `procedure_pseudo_code`(출력된 VA)로 의사코드를 받아 '{w}\logs\<메서드명>.rea.c'에 저장해줘.
+               - 조각 PE에는 호출 대상 함수의 앞부분만 들어 있어. 호출 대상이 궁금하면 그 함수로 조각을 새로 만들어줘.
+               - REA가 연결되어 있지 않으면 같은 클래스를 주석 달린 어셈블리로 봐줘 (몇 초, 의사코드 대신 어셈블리):
+                 `{Tool(ctx, ToolId.Il2CppAsm)} --binary "{gameAssembly}" --dump "{w}\il2cpp_dump\dump.cs" --script-json "{w}\il2cpp_dump\script.json" --class <클래스명> --out "{w}\logs\<클래스명>.asm"`
                - 후킹 후보(메서드명, RVA, 역할)를 '{w}\docs\hooks.md'에 표로 정리해줘.
             4. 모드 스켈레톤
                - {LoaderGuidance(d, "BepInEx 6 (IL2CPP)")}
@@ -298,6 +322,8 @@ public static class PromptBuilder
         return $"""
             1. C# 디컴파일 (읽기용)
                `{Tool(ctx, ToolId.Ilspy)} -p -o "{w}\src" -r "{managed}" "{managed}\Assembly-CSharp.dll"`
+               - Assembly-CSharp.dll이 크면 전체 디컴파일에 몇 분 걸려. 백그라운드로 돌려 두고, 그동안 관심 클래스는 하나씩 바로 볼 수 있어:
+                 `{Tool(ctx, ToolId.Ilspy)} -l c "{managed}\Assembly-CSharp.dll"` (클래스 목록) → `{Tool(ctx, ToolId.Ilspy)} -t <네임스페이스.클래스명> -r "{managed}" "{managed}\Assembly-CSharp.dll"` (그 클래스만 C#으로 출력)
                - Assembly-CSharp-firstpass.dll이 있으면 '{w}\src_firstpass'로 따로 디컴파일해줘.
             2. 구조 파악
                - MonoBehaviour 진입점(Awake/Start/Update), 매니저 싱글톤, 세이브/설정 로직을 '{w}\docs\analysis.md'에 정리해줘.
@@ -336,6 +362,9 @@ public static class PromptBuilder
                - Il2CppDumper가 실패하면 Cpp2IL로 재시도해줘 (APK는 force 옵션 3개를 함께 지정, 버전은 f1 같은 접미사 없이 숫자만. 오류 시 Enter를 기다리니 입력을 닫고 실행 — bash `< /dev/null`, cmd `< NUL`):
                  `{Tool(ctx, ToolId.Cpp2Il)} --game-path "{unzipped}" --force-binary-path "{libil2cpp}" --force-metadata-path "{metadata}" --force-unity-version "{unityVersion}" --skip-analysis --disable-registration-prompts --output-root "{w}\cpp2il_out"`
                `{Tool(ctx, ToolId.Ilspy)} -p -o "{w}\src_dummy" "{w}\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`
+               - libil2cpp.so는 ARM64 ELF라 REA로 열 수 없어. 관심 클래스의 함수 본문은 주석 달린 어셈블리로 봐줘 (몇 초면 끝나):
+                 `{Tool(ctx, ToolId.Il2CppAsm)} --binary "{libil2cpp}" --dump "{w}\il2cpp_dump\dump.cs" --script-json "{w}\il2cpp_dump\script.json" --class <클래스명> --out "{w}\logs\<클래스명>.asm"`
+               - 메서드 하나만 볼 땐 `--class` 대신 `--method "<클래스명>::<메서드명>"`. 후킹 후보(메서드명, RVA, 역할)는 '{w}\docs\hooks.md'에 표로 정리해줘.
             """;
         var mono = $"""
             2-B. Mono 디컴파일
@@ -396,17 +425,22 @@ public static class PromptBuilder
         var mac = $"- macOS IL2CPP: `{dumper} \"{app}\\Contents\\Frameworks\\GameAssembly.dylib\" \"{app}\\Contents\\Resources\\Data\\il2cpp_data\\Metadata\\global-metadata.dat\" \"{w}\\il2cpp_dump\"`\n" +
                   $"   - macOS Mono: `{ilspy} -p -o \"{w}\\src\" \"{app}\\Contents\\Resources\\Data\\Managed\\Assembly-CSharp.dll\"`";
         var extract = isIos switch { true => ios, false => mac, null => ios + "\n   " + mac };
+        var asm = Tool(ctx, ToolId.Il2CppAsm);
+        var nativeBin = isIos == false ? $@"{app}\Contents\Frameworks\GameAssembly.dylib" : $@"{app}\Frameworks\UnityFramework.framework\UnityFramework";
+        var macNote = isIos == null ? $"\n   - macOS 앱이면 위 경로 대신 \"{app}\\Contents\\Frameworks\\GameAssembly.dylib\"를 써줘." : "";
 
         return $"""
             {unpack}
-            2. 암호화 여부 확인
-               - App Store에서 받은 iOS 실행 파일은 FairPlay로 암호화되어 있을 수 있어. REA inspect_macho로 LC_ENCRYPTION_INFO의 cryptid를 확인하고,
-                 cryptid=1이면 복호화하지 말고 보고 후 멈춰줘 (직접 빌드했거나 암호화되지 않은 빌드만 분석).
+            2. 암호화 여부 확인 (REA `inspect_macho`는 macOS 전용이라 이 PC에서는 못 써)
+               `{asm} --check-encryption "{nativeBin}"`
+               - App Store에서 받은 iOS 실행 파일은 FairPlay로 암호화되어 있을 수 있어. cryptid가 0이 아니면(종료 코드 2) 복호화하지 말고 보고 후 멈춰줘 (직접 빌드했거나 암호화되지 않은 빌드만 분석).{macNote}
             3. 스크립트 코드 추출
                {extract}
                - IL2CPP 덤프 후에는 `{ilspy} -p -o "{w}\src_dummy" "{w}\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`로 시그니처를 확인해줘.
-            4. 로직 분석
-               - REA로 UnityFramework / GameAssembly.dylib를 열어 script.json 주소와 대응시키고, 핵심 로직과 후킹 후보를 '{w}\docs\hooks.md'에 정리해줘.
+            4. 로직 분석 (Mach-O라 REA로는 열 수 없어 — 주석 달린 어셈블리로 봐줘)
+               `{asm} --binary "{nativeBin}" --dump "{w}\il2cpp_dump\dump.cs" --script-json "{w}\il2cpp_dump\script.json" --class <클래스명> --out "{w}\logs\<클래스명>.asm"`
+               - 메서드 하나만 볼 땐 `--method "<클래스명>::<메서드명>"`. 유니버설(fat) 바이너리면 Il2CppDumper에서 고른 것과 같은 아키텍처를 `--arch arm64`(기본) / `--arch x64`로 지정해줘.
+               - 핵심 로직과 후킹 후보(메서드명, RVA, 역할)를 '{w}\docs\hooks.md'에 정리해줘.
             """;
     }
 
@@ -422,6 +456,12 @@ public static class PromptBuilder
 
     /// <summary>단계 안에서는 짧은 도구 이름을 쓰고, 실제 경로는 '사용할 도구' 섹션에 한 번만 적습니다.</summary>
     private static string Tool(PromptContext ctx, ToolId id) => ctx.Tools[id].CommandName;
+
+    /// <summary>큰 PE를 조각 내서 REA로 여는 타겟인지 (IL2CPP의 GameAssembly.dll, 네이티브 EXE)</summary>
+    private static bool UsesSlicer(PromptContext ctx) => ctx.Profile.RequiredTools.Contains(ToolId.PeSlice);
+
+    /// <summary>네이티브 코드가 ELF(libil2cpp.so) · Mach-O(UnityFramework)라 Windows REA로 열 수 없는 타겟인지</summary>
+    private static bool NativeIsNotPe(PromptContext ctx) => ctx.Profile.Kind is TargetKind.UnityApk or TargetKind.UnityApp;
 
     /// <summary>현재 대상 파일에 대한 판별 결과만 사용 (다른 파일의 오래된 결과는 무시)</summary>
     private static DetectionResult? Matching(PromptContext ctx) =>
