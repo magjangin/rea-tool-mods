@@ -70,6 +70,12 @@ public static class ToolLocator
                     ? ExistingFile(slicer)
                     : null,
                 @"Python 3 설치 후 pip install capstone (tools\pe_slice.py · bat\pe_slice.bat 필요)"),
+            // Windows REA는 PE만 열 수 있으므로 libil2cpp.so(ELF) · UnityFramework(Mach-O)는 dump.cs 오프셋으로 직접 디스어셈블
+            new ToolLocation(ToolId.Il2CppAsm, "IL2CPP 주석 디스어셈블러", "il2cpp_asm",
+                FindPython() != null && File.Exists(Path.Combine(ToolsDir, "il2cpp_asm.py")) && BatPath("il2cpp_asm.bat") is { } asm
+                    ? ExistingFile(asm)
+                    : null,
+                @"Python 3 설치 후 pip install capstone (tools\il2cpp_asm.py · bat\il2cpp_asm.bat 필요)"),
         };
 
         return list.ToDictionary(t => t.Id);

@@ -52,16 +52,17 @@ public static class TargetCatalog
 
         new(TargetKind.UnityIl2Cpp, "Unity IL2CPP", "⚡", "IL2CPP (메타 덤프 & 후킹)", "-unity-il2cpp",
             [".exe", ".dll", ".dat"], true,
-            [ToolId.Il2CppDumper, ToolId.Cpp2Il, ToolId.Ilspy, ToolId.DotnetSdk, ToolId.ReaCli, ToolId.PeSlice]),
+            [ToolId.Il2CppDumper, ToolId.Cpp2Il, ToolId.Ilspy, ToolId.DotnetSdk, ToolId.ReaCli, ToolId.PeSlice, ToolId.Il2CppAsm]),
         new(TargetKind.UnityMono, "Unity Mono", "🐵", "Mono (C# 디컴파일 & 모드)", "-unity-mono",
             [".exe", ".dll"], true,
             [ToolId.Ilspy, ToolId.DotnetSdk]),
         new(TargetKind.UnityApk, "Unity APK", "📲", "Unity APK (녹스 · ADB)", "-unity-android",
             [".apk", ".xapk", ".apks", ".aab"], true,
-            [ToolId.Il2CppDumper, ToolId.Cpp2Il, ToolId.Ilspy, ToolId.Jadx, ToolId.Adb]),
+            [ToolId.Il2CppDumper, ToolId.Cpp2Il, ToolId.Ilspy, ToolId.Jadx, ToolId.Adb, ToolId.Il2CppAsm]),
+        // Windows REA는 Mach-O를 열지 못하고 inspect_macho도 macOS 전용이라, 암호화 확인과 로직 분석은 il2cpp_asm으로
         new(TargetKind.UnityApp, "Unity APP", "🍎", "Unity APP (iOS IPA · macOS)", "-unity-app",
             [".ipa", ".app", ".zip"], true,
-            [ToolId.Il2CppDumper, ToolId.Ilspy, ToolId.ReaCli]),
+            [ToolId.Il2CppDumper, ToolId.Ilspy, ToolId.Il2CppAsm]),
     ];
 
     public static TargetProfile Get(TargetKind kind) => All.First(p => p.Kind == kind);

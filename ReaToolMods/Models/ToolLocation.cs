@@ -13,7 +13,8 @@ public enum ToolId
     Cpp2Il,
     Adb,
     ReaCli,
-    PeSlice
+    PeSlice,
+    Il2CppAsm
 }
 
 /// <summary>
