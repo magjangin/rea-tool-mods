@@ -49,7 +49,7 @@
 | 일반 | ⚙️ **DLL** | `ilspycmd -p` C# 프로젝트 복원, `dotnet build`, 후킹 포인트 정리 | `-dotnet` |
 | 일반 | 📱 **APK** | `JADX` Java 디컴파일 + `Apktool` 리소스 추출, ADB 실행 | `-android` |
 | 일반 | 📦 **APP** | `@electron/asar` 언팩, IPC 분석, `npx electron .` 실행 | `-electron` |
-| Unity | ⚡ **IL2CPP** | `Il2CppDumper`(실패 시 `Cpp2IL`) 덤프 → DummyDll 시그니처 → REA로 GameAssembly 분석 → 모드 스켈레톤 | `-unity-il2cpp` |
+| Unity | ⚡ **IL2CPP** | `Il2CppDumper`(실패 시 `Cpp2IL`) 덤프 → DummyDll 시그니처 → `pe_slice` 조각 PE를 REA로 분석 → 모드 스켈레톤 | `-unity-il2cpp` |
 | Unity | 🐵 **Mono** | `Managed\Assembly-CSharp.dll` 디컴파일(읽기용) → BepInEx/MelonLoader + HarmonyX 모드 프로젝트 빌드 | `-unity-mono` |
 | Unity | 📲 **Unity APK** | APK/XAPK 압축 해제 → `libil2cpp.so` + `global-metadata.dat` 덤프 또는 Mono 디컴파일 → 녹스 실행 검증 | `-unity-android` |
 | Unity | 🍎 **Unity APP** | iOS IPA / macOS .app — FairPlay 암호화 확인 후 UnityFramework·GameAssembly.dylib 덤프 | `-unity-app` |
@@ -88,6 +88,15 @@ Win32 창 제어(`WindowsAutomation`)로 현재 열린 앱을 찾아 `Ctrl + V` 
 - `setup_rea_workflows.bat`: [morluto/rea](https://github.com/morluto/rea) 워크플로우 스킬 동기화 및 MCP 에이전트 연동
 - `run_tool.bat`: Avalonia UI 앱 원클릭 실행기
 - `run_prompt_tests.bat`: 8종 타겟 × 작업 폴더 상태별 프롬프트 생성 검증 + 프롬프트 속 명령을 실제 도구로 실행 ([결과](docs/PROMPT_TEST.md))
+- `pe_slice.bat`: 큰 x64 PE(GameAssembly.dll 등)에서 **보고 싶은 함수 주변 페이지만 담은 조각 PE**를 만듭니다 (`tools\pe_slice.py`, Python 3 + `capstone` 권장).
+  REA(Windows Ghidra)로 70MB짜리 GameAssembly.dll을 통째로 열면 전체 자동 분석이 MCP 시간 제한을 넘겨 **타임아웃**이 납니다. 조각 PE(수백 KB)는 1분 안에 열리고, `script.json` 이름이 export로 들어가 의사코드에 메서드·문자열 이름이 그대로 보입니다.
+
+  ```bat
+  bat\pe_slice.bat --dll "<게임>\GameAssembly.dll" --script-json "<작업 폴더>\il2cpp_dump\script.json" --class TileDataLoader --out "<작업 폴더>\slices\TileDataLoader.dll"
+  ```
+  - 메서드 하나: `--method "TileDataLoader::GenerateNote"` (script.json의 `$$` 대신 `::` — PowerShell·bash가 큰따옴표 안 `$$`를 변수로 바꾸기 때문), 주소: `--rva 0x66F670` (여러 번 써서 한 조각에 묶기 가능)
+  - 출력 끝의 'REA 다음 단계'대로 `open_binary`(조각 PE) → `procedure_pseudo_code`(출력된 VA)
+  - 실측 (KAMITSUBAKI CITY ENSEMBLE, 70MB): 메서드 1개 조각 0.8초·110KB, 클래스 1개(함수 11개) 1.3초·370KB, REA 열기+디컴파일 1분 이내
 
 ---
 
@@ -110,7 +119,11 @@ rea-tool-mods/
 │   ├── check_android_emulator_env.ps1
 │   ├── setup_rea_workflows.bat           # REA 워크플로우 동기화 & MCP 에이전트 설정
 │   ├── run_prompt_tests.bat              # 프롬프트 테스트 실행
+│   ├── pe_slice.bat                      # 큰 PE → 함수 주변만 담은 조각 PE (REA 타임아웃 회피)
 │   └── run_tool.bat                      # 앱 원클릭 실행 런처
+│
+├── tools/
+│   └── pe_slice.py                       # 조각 PE 생성기 본체 (나머지 tools/는 다운로드한 도구, git 제외)
 │
 ├── ReaToolMods/                          # Avalonia MVVM 프로젝트
 │   ├── Models/

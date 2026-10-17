@@ -39,7 +39,7 @@ public static class TargetCatalog
     [
         new(TargetKind.Exe, "EXE", "🖥️", "EXE (디컴파일 & 스켈레톤)", "-windows",
             [".exe", ".dll", ".sys", ".so", ".dylib"], false,
-            [ToolId.ReaCli]),
+            [ToolId.ReaCli, ToolId.PeSlice]),
         new(TargetKind.Dll, "DLL", "⚙️", "DLL (C# 디컴파일 & 빌드)", "-dotnet",
             [".dll", ".exe"], false,
             [ToolId.DotnetSdk, ToolId.Ilspy]),
@@ -52,7 +52,7 @@ public static class TargetCatalog
 
         new(TargetKind.UnityIl2Cpp, "Unity IL2CPP", "⚡", "IL2CPP (메타 덤프 & 후킹)", "-unity-il2cpp",
             [".exe", ".dll", ".dat"], true,
-            [ToolId.Il2CppDumper, ToolId.Cpp2Il, ToolId.Ilspy, ToolId.DotnetSdk, ToolId.ReaCli]),
+            [ToolId.Il2CppDumper, ToolId.Cpp2Il, ToolId.Ilspy, ToolId.DotnetSdk, ToolId.ReaCli, ToolId.PeSlice]),
         new(TargetKind.UnityMono, "Unity Mono", "🐵", "Mono (C# 디컴파일 & 모드)", "-unity-mono",
             [".exe", ".dll"], true,
             [ToolId.Ilspy, ToolId.DotnetSdk]),

@@ -138,6 +138,12 @@ public static class PromptBuilder
         }
 
         sb.AppendLine("- REA MCP 도구(open_binary, binary_overview, procedure_pseudo_code 등)가 연결되어 있으면 정적 분석에 우선 사용해줘.");
+        if (UsesSlicer(ctx))
+        {
+            sb.AppendLine("- ⚠️ 10MB가 넘는 PE(GameAssembly.dll 등)는 REA `open_binary`로 통째로 열지 마. Ghidra가 파일 전체를 자동 분석하느라 응답이 MCP 시간 제한을 넘겨 타임아웃이 나. " +
+                          "보고 싶은 함수만 `pe_slice`로 조각 PE(수백 KB)를 만들어 열면 1분 안에 의사코드가 나와.");
+            sb.AppendLine("- REA가 앞선 호출 때문에 계속 응답이 없으면 `binary_session`으로 상태를 확인하고, 그래도 막혀 있으면 REA MCP 서버를 다시 시작해 달라고 내게 말해줘.");
+        }
         if (ctx.Profile.RequiredTools.Any(id => ctx.Tools[id].Path?.Contains(' ') == true))
             sb.AppendLine("- 경로에 공백이 있으므로 PowerShell에서는 `& \"경로\" 인자` 형태로 실행해줘.");
         sb.AppendLine();
@@ -174,6 +180,10 @@ public static class PromptBuilder
         sb.AppendLine($"- 단계를 마칠 때마다 '{w}\\PROGRESS.md'에 `[완료|진행중|막힘] 단계명 — 산출물 경로 — 메모` 형식으로 기록해줘. 다음 세션이 이 파일만 보고 이어갈 수 있어야 해.");
         sb.AppendLine($"- 실행한 명령과 핵심 출력은 '{w}\\logs\\'에 남기고, 확인된 사실과 추정을 구분해서 써줘.");
         sb.AppendLine("- 도구가 없거나 같은 오류가 2번 이상 반복되면 우회책을 계속 시도하지 말고 원인과 필요한 조치를 정리한 뒤 멈춰줘.");
+        var split = UsesSlicer(ctx) ? "큰 PE는 `pe_slice`로 함수 단위 조각을 만들어 REA로 열고, " : "";
+        sb.AppendLine("- 단, **타임아웃은 위 규칙에 넣지 마.** 도구가 고장 난 게 아니라 한 번에 맡긴 일이 너무 크다는 뜻이야. " +
+                      $"같은 호출을 그대로 반복하지 말고 더 작게 나눠서 바로 이어가줘 ({split}오래 걸리는 명령은 백그라운드로 돌리고 로그로 확인). " +
+                      "내가 다시 하라고 하면 타임아웃을 이유로 거절하지 말고 이렇게 나눠서 다시 해줘.");
         sb.AppendLine("- 범위: 로컬·싱글플레이 분석과 모드 제작만. 온라인 게임의 안티치트/DRM/서버 검증 우회, 결제·재화 조작, 암호화된 바이너리나 메타데이터의 복호화는 하지 마.");
         sb.AppendLine();
         sb.AppendLine("## 최종 보고");
@@ -201,6 +211,8 @@ public static class PromptBuilder
         return $"""
             1. 정적 분석 및 의사코드 덤프
                - REA(open_binary → binary_overview → list_procedures / procedure_pseudo_code)로 Import/Export, 문자열, 엔트리포인트를 정리해 '{w}\decompiled'에 저장해줘.
+               - 대상이 10MB가 넘는 x64 PE면 통째로 열지 말고, Export 표 등에서 관심 함수의 RVA를 먼저 찾은 뒤 조각 PE로 열어줘:
+                 `{Tool(ctx, ToolId.PeSlice)} --dll "{Target(ctx)}" --rva <함수 RVA> --out "{w}\slices\sub_<RVA>.dll"`
                - 메인 엔트리포인트와 핵심 로직의 제어 흐름을 '{w}\docs\analysis.md'에 명세서로 정리해줘.
             2. 스켈레톤 복원 및 실행 테스트
                - 핵심 동작을 재현/테스트할 수 있는 C/C++ 또는 C# 스켈레톤 프로젝트를 '{w}\skeleton'에 만들어줘.
@@ -279,8 +291,12 @@ public static class PromptBuilder
             2. 시그니처 탐색
                `{Tool(ctx, ToolId.Ilspy)} -p -o "{w}\src_dummy" "{w}\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`
                - DummyDll은 메서드 본문이 비어 있으므로 클래스/필드/메서드 시그니처와 RVA 주석만 참고해줘.
-            3. 네이티브 로직 분석
-               - REA로 GameAssembly.dll을 열고 script.json의 주소/이름을 대응시켜 관심 메서드의 의사코드를 확인해줘.
+            3. 네이티브 로직 분석 (GameAssembly.dll 원본은 REA로 통째로 열지 마 — 타임아웃 남)
+               - 관심 클래스(또는 메서드)만 조각 PE로 만들어줘. script.json 이름이 export로 들어가서 의사코드에 메서드·문자열 이름이 그대로 보여:
+                 `{Tool(ctx, ToolId.PeSlice)} --dll "{gameAssembly}" --script-json "{w}\il2cpp_dump\script.json" --class <클래스명> --out "{w}\slices\<클래스명>.dll"`
+               - 메서드 하나만 볼 땐 `--class` 대신 `--method "<클래스명>::<메서드명>"`(셸이 `$$`를 변수로 바꾸니 `::`로 써줘), 주소로는 `--rva 0x<dump.cs의 RVA>`. 여러 번 써서 한 조각에 묶어도 돼.
+               - 출력 끝의 'REA 다음 단계'대로 REA `open_binary`(조각 PE) → `procedure_pseudo_code`(출력된 VA)로 의사코드를 받아 '{w}\logs\<메서드명>.rea.c'에 저장해줘.
+               - 조각 PE에는 호출 대상 함수의 앞부분만 들어 있어. 호출 대상이 궁금하면 그 함수로 조각을 새로 만들어줘.
                - 후킹 후보(메서드명, RVA, 역할)를 '{w}\docs\hooks.md'에 표로 정리해줘.
             4. 모드 스켈레톤
                - {LoaderGuidance(d, "BepInEx 6 (IL2CPP)")}
@@ -422,6 +438,9 @@ public static class PromptBuilder
 
     /// <summary>단계 안에서는 짧은 도구 이름을 쓰고, 실제 경로는 '사용할 도구' 섹션에 한 번만 적습니다.</summary>
     private static string Tool(PromptContext ctx, ToolId id) => ctx.Tools[id].CommandName;
+
+    /// <summary>큰 PE를 조각 내서 REA로 여는 타겟인지 (IL2CPP의 GameAssembly.dll, 네이티브 EXE)</summary>
+    private static bool UsesSlicer(PromptContext ctx) => ctx.Profile.RequiredTools.Contains(ToolId.PeSlice);
 
     /// <summary>현재 대상 파일에 대한 판별 결과만 사용 (다른 파일의 오래된 결과는 무시)</summary>
     private static DetectionResult? Matching(PromptContext ctx) =>

@@ -191,6 +191,16 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
             errs.Add($"단계에서 {t.CommandName} 사용하지만 필요 도구 목록에 없음");
     }
 
+    // 타임아웃: '같은 오류 2번이면 멈춤'에서 빼고, 다시 하라고 하면 나눠서 다시 하게
+    Need(p.Contains("**타임아웃은 위 규칙에 넣지 마.**") && p.Contains("타임아웃을 이유로 거절하지 말고"), "타임아웃 재시도 규칙");
+    var slicer = profile.RequiredTools.Contains(ToolId.PeSlice);
+    Need(slicer == p.Contains("통째로 열지 마"), slicer ? "큰 PE를 통째로 열지 말라는 안내 없음" : "조각 PE 안내가 다른 타겟에 노출");
+    if (profile.Kind == TargetKind.UnityIl2Cpp)
+    {
+        Need(!p.Contains("REA로 GameAssembly.dll을 열고"), "GameAssembly.dll 통째로 열기 지시가 남음");
+        Need(stepsPart.Contains($"--script-json \"{w}\\il2cpp_dump\\script.json\""), "pe_slice가 1단계 덤프의 script.json을 가리키지 않음");
+    }
+
     // 판별 정보가 있으면 자리표시자가 남지 않아야 함
     if (profile.Kind is TargetKind.UnityIl2Cpp or TargetKind.UnityMono)
         Need(!p.Contains("<게임"), "게임 경로 자리표시자 남음");
@@ -301,6 +311,27 @@ if (Has(ToolId.Il2CppDumper, ToolId.Cpp2Il))
         !cout.Contains("GetRuntimeOptionsFromCommandLine") && !cout.Contains("ERROR(S)") && cout.Contains("MainWithArgs"), FirstError(cout));
 }
 else Skip("B.실행", "IL2CPP: Il2CppDumper / Cpp2IL", Missing(ToolId.Il2CppDumper, ToolId.Cpp2Il));
+
+// B4-2. Unity IL2CPP PC — pe_slice 조각 PE (가짜 GameAssembly.dll = version.dll 복사본, script.json은 테스트가 만듦)
+if (Has(ToolId.PeSlice))
+{
+    var w = Path.Combine(work, "B4 il2cpp slice");
+    var prompt = Prompt(TargetKind.UnityIl2Cpp, il2Exe, w);
+    var cmd = Command(prompt, ToolId.PeSlice, "pe_slice")!.Replace("<클래스명>", "Fake");
+    var a = QuotedArgs(cmd);   // [0]=도구, [1]=GameAssembly.dll, [2]=script.json, [3]=조각 PE
+    var script = new
+    {
+        ScriptMethod = new[] { new { Address = PeEntryRva(a[1]), Name = "Fake$$Run" } },
+        ScriptString = Array.Empty<object>(), ScriptMetadata = Array.Empty<object>(), ScriptMetadataMethod = Array.Empty<object>()
+    };
+    Put(a[2], JsonSerializer.SerializeToUtf8Bytes(script));
+    var (code, output) = Run(cmd, 60);
+    var slice = File.Exists(a[3]) ? File.ReadAllBytes(a[3]) : [];
+    Check("B.실행", "IL2CPP: pe_slice --class → 조각 PE 생성, export에 script.json 이름",
+        code == 0 && slice.Length > 0x400 && slice[0] == 'M' && slice[1] == 'Z' && Encoding.ASCII.GetString(slice).Contains("Fake$$Run"),
+        $"exit={code}, {slice.Length} bytes {Tail(output)}");
+}
+else Skip("B.실행", "IL2CPP: pe_slice", Missing(ToolId.PeSlice));
 
 // B5. APP — asar extract
 {
@@ -450,6 +481,12 @@ static (int Code, string Output) Run(string commandLine, int timeoutSec)
     var e = p.StandardError.ReadToEndAsync();
     if (!p.WaitForExit(timeoutSec * 1000)) { p.Kill(true); return (-1, "TIMEOUT " + o.Result + e.Result); }
     return (p.ExitCode, o.Result + e.Result);
+}
+
+static int PeEntryRva(string path)
+{
+    var b = File.ReadAllBytes(path);
+    return BitConverter.ToInt32(b, BitConverter.ToInt32(b, 0x3C) + 24 + 16);   // OptionalHeader.AddressOfEntryPoint
 }
 
 static string FirstError(string s) =>

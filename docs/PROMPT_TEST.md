@@ -15,15 +15,15 @@ dotnet run --project tests/PromptTests
 
 ---
 
-## 결과 요약 (2026-10-13, JDK 17 설치 후 재실행)
+## 결과 요약 (2026-10-17, `pe_slice` · 타임아웃 규칙 추가 후 재실행)
 
 | 영역 | 내용 | 결과 |
 |---|---|---|
-| A. 판별 | 8종 픽스처가 올바른 타겟으로 판별되는지 | ✅ 8 / 8 |
+| A. 판별 | 8종 픽스처 + 앱 실행 별칭이 올바른 타겟으로 판별되는지 | ✅ 8 / 8 + 별칭 1 |
 | A. 생성 | 8종 타겟 × 5가지 작업 폴더 상태 = 40개 프롬프트 검증 | ✅ 40 / 40 |
-| B. 실행 | 프롬프트의 명령을 그대로 실행 | ✅ 13 통과 · ⏭️ 1 건너뜀 |
-| C. ViewModel | 앱 흐름 (판별 → 폴더 → 경고 → 이어하기 → 재사용) | ✅ 11 통과 · ⏭️ 1 건너뜀 |
-| **합계** | | **72 통과 · 0 실패 · 2 건너뜀** |
+| B. 실행 | 프롬프트의 명령을 그대로 실행 | ✅ 14 통과 · ⏭️ 1 건너뜀 |
+| C. ViewModel | 앱 흐름 (판별 → 폴더 → 경고 → 이어하기 → 재사용) | ✅ 12 통과 · ⏭️ 1 건너뜀 |
+| **합계** | | **75 통과 · 0 실패 · 2 건너뜀** |
 
 ---
 
@@ -45,6 +45,8 @@ dotnet run --project tests/PromptTests
 - 타겟의 필요 도구가 "사용할 도구"에 모두 나오고, **단계에서 쓰는 도구는 반드시 필요 도구 목록에 있음** (경로 안내 누락 방지)
 - Unity PC 타겟은 `<게임…>` 자리표시자가 남지 않고, Unity APP은 덤프 명령에 실제 `.app` 경로가 들어감
 - Unity APK는 Cpp2IL에 숫자 형식 Unity 버전(`2022.3.10`)이 전달됨
+- 모든 타겟: 타임아웃은 "같은 오류 2번이면 멈춤" 규칙에서 빠지고, 다시 하라고 하면 거절하지 말고 나눠서 다시 하라는 문구가 있음
+- EXE · Unity IL2CPP: "10MB가 넘는 PE는 통째로 열지 마" 안내가 있고(다른 타겟엔 없어야 함), IL2CPP는 `REA로 GameAssembly.dll을 열고` 지시가 없고 `pe_slice`가 1단계 덤프의 `script.json`을 가리킴
 
 ---
 
@@ -63,6 +65,7 @@ dotnet run --project tests/PromptTests
 | Unity IL2CPP | (경로 검사) | `GameAssembly.dll` · `global-metadata.dat` 경로 존재 | ✅ |
 | Unity IL2CPP | `Il2CppDumper <GameAssembly.dll> <metadata> <out>` | `Initializing metadata` → `Metadata Version: 29` → `Initializing il2cpp file` | ✅ |
 | Unity IL2CPP | `Cpp2IL --game-path … --exe-name … --skip-analysis --disable-registration-prompts --output-root …` | 옵션 파싱 통과 후 본 처리 단계에서 실패 | ✅ |
+| Unity IL2CPP | `pe_slice --dll <GameAssembly.dll> --script-json <il2cpp_dump\script.json> --class Fake --out <slices\Fake.dll>` | 테스트가 만든 script.json(엔트리 RVA에 `Fake$$Run`)으로 조각 PE 생성, 종료 코드 0, `MZ` 헤더 + export 이름 포함 | ✅ |
 | APP | `asar extract <resources\app.asar> extracted` | `asar pack`으로 만든 실제 asar에서 `main.js` 추출 | ✅ |
 | Unity APP | `tar.exe -xf <ipa> -C unpacked` + 경로 검사 | iOS 덤프 명령의 `Payload\Game.app\Frameworks\UnityFramework.framework\UnityFramework`와 metadata가 실제로 존재 | ✅ |
 | APK | `jadx -d <out> <apk>` | JADX 1.5.6이 인자를 받아 입력을 처리 (가짜 dex라 `No classes to decompile`) | ✅ |
@@ -106,6 +109,8 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 | 4 | APP 언팩 명령이 설치 확인 질문에서 멈출 수 있음 | `npx @electron/asar`는 로컬 패키지가 없으면 설치 여부를 물을 수 있음 | 설치된 `asar`를 직접 사용 (환경 점검으로 설치 확인) |
 | 5 | Unity APP 프롬프트에 `<앱>.app` 자리표시자가 남음 | IPA 안의 앱 번들 이름을 쓰지 않음 | 판별된 메타데이터 경로에서 `.app` 위치를 계산해 실제 경로로 채우고, iOS/macOS 중 해당 명령만 표시 |
 | 6 | 프롬프트의 `adb`가 녹스 연결을 끊을 수 있음 (녹스 실행 후 환경 점검에서 발견) | `adb`가 PATH의 platform-tools 1.0.41로 잡혔는데 녹스는 `nox_adb` 1.0.36을 씀 → 버전이 다르면 서로 adb 서버를 재시작 | 녹스가 설치되어 있으면 `nox_adb`를 우선 사용, 버전이 다를 때만 환경 점검에 경고 표시 |
+| 7 | IL2CPP 3단계에서 에이전트가 타임아웃 후 다시 하기를 거절 (실제 게임 KAMITSUBAKI CITY ENSEMBLE에서 발견) | 프롬프트가 "REA로 GameAssembly.dll을 열고"라고 시킴 → REA(Windows Ghidra)가 70MB 전체를 자동 분석하느라 MCP 시간 제한 초과. 또 "같은 오류 2번이면 멈춤" 규칙 때문에 다시 하라고 해도 거절 | `pe_slice`로 함수 주변만 담은 조각 PE를 만들어 열게 바꿈(실측 1분 이내). 타임아웃은 멈춤 규칙에서 빼고, 나눠서 다시 하라고 명시 |
+| 8 | `--method "Class$$Method"`가 셸에서 깨짐 | PowerShell·bash는 큰따옴표 안의 `$$`를 변수로 바꿈 | `Class::Method` 형식을 받게 하고 프롬프트도 `::`로 안내 |
 
 (이번 점검 중 별도로 `download_analysis_tools.bat`의 apktool 래퍼에 다운로드 로그가 섞이는 버그도 수정했습니다 — [CODE_SNIPPETS.md 12.5](CODE_SNIPPETS.md#125-if--블록-안에서-파일-쓰기--apktoolbat-래퍼-버그-수정).)
 
@@ -154,7 +159,10 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 - ilspycmd (`ilspycmd`): `%USERPROFILE%\.dotnet\tools\ilspycmd.EXE`
 - .NET SDK (`dotnet`): `C:\Program Files\dotnet\dotnet.EXE`
 - REA CLI (`rea`): `%USERPROFILE%\AppData\Roaming\npm\rea.CMD`
+- PE 조각 추출기 (`pe_slice`): `<repo>\bat\pe_slice.bat`
 - REA MCP 도구(open_binary, binary_overview, procedure_pseudo_code 등)가 연결되어 있으면 정적 분석에 우선 사용해줘.
+- ⚠️ 10MB가 넘는 PE(GameAssembly.dll 등)는 REA `open_binary`로 통째로 열지 마. Ghidra가 파일 전체를 자동 분석하느라 응답이 MCP 시간 제한을 넘겨 타임아웃이 나. 보고 싶은 함수만 `pe_slice`로 조각 PE(수백 KB)를 만들어 열면 1분 안에 의사코드가 나와.
+- REA가 앞선 호출 때문에 계속 응답이 없으면 `binary_session`으로 상태를 확인하고, 그래도 막혀 있으면 REA MCP 서버를 다시 시작해 달라고 내게 말해줘.
 - 경로에 공백이 있으므로 PowerShell에서는 `& "경로" 인자` 형태로 실행해줘.
 
 ## 수행 지침
@@ -168,8 +176,12 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 2. 시그니처 탐색
    `ilspycmd -p -o "D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\src_dummy" "D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`
    - DummyDll은 메서드 본문이 비어 있으므로 클래스/필드/메서드 시그니처와 RVA 주석만 참고해줘.
-3. 네이티브 로직 분석
-   - REA로 GameAssembly.dll을 열고 script.json의 주소/이름을 대응시켜 관심 메서드의 의사코드를 확인해줘.
+3. 네이티브 로직 분석 (GameAssembly.dll 원본은 REA로 통째로 열지 마 — 타임아웃 남)
+   - 관심 클래스(또는 메서드)만 조각 PE로 만들어줘. script.json 이름이 export로 들어가서 의사코드에 메서드·문자열 이름이 그대로 보여:
+     `pe_slice --dll "D:\ReaTest\Games With Space\IlGame\GameAssembly.dll" --script-json "D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\il2cpp_dump\script.json" --class <클래스명> --out "D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\slices\<클래스명>.dll"`
+   - 메서드 하나만 볼 땐 `--class` 대신 `--method "<클래스명>::<메서드명>"`(셸이 `$$`를 변수로 바꾸니 `::`로 써줘), 주소로는 `--rva 0x<dump.cs의 RVA>`. 여러 번 써서 한 조각에 묶어도 돼.
+   - 출력 끝의 'REA 다음 단계'대로 REA `open_binary`(조각 PE) → `procedure_pseudo_code`(출력된 VA)로 의사코드를 받아 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\logs\<메서드명>.rea.c'에 저장해줘.
+   - 조각 PE에는 호출 대상 함수의 앞부분만 들어 있어. 호출 대상이 궁금하면 그 함수로 조각을 새로 만들어줘.
    - 후킹 후보(메서드명, RVA, 역할)를 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\docs\hooks.md'에 표로 정리해줘.
 4. 모드 스켈레톤
    - 게임에 모드 로더가 없습니다. BepInEx 6 (IL2CPP) 또는 MelonLoader 중 무엇을 쓸지 제안만 하고, 게임 폴더에 설치하는 건 내 확인을 받은 뒤 진행해줘.
@@ -182,6 +194,7 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 - 단계를 마칠 때마다 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\PROGRESS.md'에 `[완료|진행중|막힘] 단계명 — 산출물 경로 — 메모` 형식으로 기록해줘. 다음 세션이 이 파일만 보고 이어갈 수 있어야 해.
 - 실행한 명령과 핵심 출력은 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\logs\'에 남기고, 확인된 사실과 추정을 구분해서 써줘.
 - 도구가 없거나 같은 오류가 2번 이상 반복되면 우회책을 계속 시도하지 말고 원인과 필요한 조치를 정리한 뒤 멈춰줘.
+- 단, **타임아웃은 위 규칙에 넣지 마.** 도구가 고장 난 게 아니라 한 번에 맡긴 일이 너무 크다는 뜻이야. 같은 호출을 그대로 반복하지 말고 더 작게 나눠서 바로 이어가줘 (큰 PE는 `pe_slice`로 함수 단위 조각을 만들어 REA로 열고, 오래 걸리는 명령은 백그라운드로 돌리고 로그로 확인). 내가 다시 하라고 하면 타임아웃을 이유로 거절하지 말고 이렇게 나눠서 다시 해줘.
 - 범위: 로컬·싱글플레이 분석과 모드 제작만. 온라인 게임의 안티치트/DRM/서버 검증 우회, 결제·재화 조작, 암호화된 바이너리나 메타데이터의 복호화는 하지 마.
 
 ## 최종 보고

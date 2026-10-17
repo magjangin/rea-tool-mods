@@ -63,7 +63,8 @@ public static partial class EnvironmentChecker
             VersionCheck(tools[ToolId.Asar], "--version", "APP(Electron)"),
             Task.FromResult(FileCheck(tools[ToolId.Il2CppDumper], "Unity IL2CPP · Unity APK/APP")),
             Task.FromResult(FileCheck(tools[ToolId.Cpp2Il], "Unity IL2CPP (대체 덤퍼)")),
-            VersionCheck(tools[ToolId.ReaCli], "--version", "EXE · 네이티브 분석", GroupAgent));
+            VersionCheck(tools[ToolId.ReaCli], "--version", "EXE · 네이티브 분석", GroupAgent),
+            VersionCheck(tools[ToolId.PeSlice], "--version", "Unity IL2CPP · EXE (큰 PE의 REA 타임아웃 회피)", GroupAgent));
 
         var results = toolChecks.ToList();
         results.Add(VirtualizationCheck());

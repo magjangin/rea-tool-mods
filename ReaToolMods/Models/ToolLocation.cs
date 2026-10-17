@@ -12,7 +12,8 @@ public enum ToolId
     Il2CppDumper,
     Cpp2Il,
     Adb,
-    ReaCli
+    ReaCli,
+    PeSlice
 }
 
 /// <summary>
