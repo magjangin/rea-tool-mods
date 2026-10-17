@@ -130,13 +130,11 @@ rea-tool-mods/
 │   ├── run_prompt_tests.bat              # 프롬프트 테스트 실행
 │   ├── pe_slice.bat                      # 큰 PE → 함수 주변만 담은 조각 PE (REA 타임아웃 회피)
 │   ├── il2cpp_asm.bat                    # IL2CPP 메서드 → 이름 주석 어셈블리 (ELF · Mach-O · PE) / Mach-O 암호화 확인
-│   ├── fast_il2cpp_disasm.bat            # dump.cs 기반 x64 빠른 디스어셈블러
 │   └── run_tool.bat                      # 앱 원클릭 실행 런처
 │
 ├── tools/                                # 아래 스크립트 외에는 다운로드한 도구 (git 제외)
 │   ├── pe_slice.py                       # 조각 PE 생성기
-│   ├── il2cpp_asm.py                     # 주석 디스어셈블러 · cryptid 확인
-│   └── fast_il2cpp_disasm.py             # dump.cs 기반 x64 디스어셈블러
+│   └── il2cpp_asm.py                     # 주석 디스어셈블러 · cryptid 확인
 │
 ├── ReaToolMods/                          # Avalonia MVVM 프로젝트
 │   ├── Models/
