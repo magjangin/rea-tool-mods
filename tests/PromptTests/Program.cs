@@ -191,15 +191,8 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
     Need(p.Contains("## 0. 작업 폴더 상태") && p.Contains("## 사용할 도구") && p.Contains("## 수행 지침") &&
          p.Contains("## 공통 규칙") && p.Contains("## 최종 보고"), "필수 섹션");
     Need(p.Contains("범위: 로컬·싱글플레이"), "범위 규칙");
-    var hasGuardrails = p.Contains("## 시작 전 확인 (Unity 게임 가드레일)");
-    if (profile.IsUnity)
-    {
-        Need(hasGuardrails && p.IndexOf("## 시작 전 확인", StringComparison.Ordinal) < p.IndexOf("## 수행 지침", StringComparison.Ordinal),
-            "Unity 가드레일이 수행 지침보다 앞에 있어야 함");
-        Need(p.Contains("구조 → 덤프 → 웹 검색") && p.Contains("클로닝 금지") && !p.Contains("구매 확인"), "Unity 가드레일 핵심 항목");
-    }
-    else
-        Need(!hasGuardrails, "Unity가 아닌 타겟에 Unity 가드레일 노출");
+    // Unity 가드레일(시작 전 확인 · 온라인 판정 · 웹 검색 · 안전장치)은 뺐음: 어떤 타겟에도 없어야 함
+    Need(!p.Contains("## 시작 전 확인") && !p.Contains("가드레일") && !p.Contains("구조 → 덤프 → 웹 검색"), "Unity 가드레일 섹션이 남아 있음");
     Need(!Regex.IsMatch(p, @"\{[A-Za-z_]+\}"), "치환 안 된 {변수}");
     Need(!p.Contains("ReaToolMods.") && !p.Contains("System.Collections"), "객체 ToString 노출");
 
