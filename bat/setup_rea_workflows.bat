@@ -8,10 +8,7 @@ echo.
 
 set "REA_SOURCE=H:\source\repos\rea-hwa"
 if not exist "%REA_SOURCE%" (
-    set "REA_SOURCE=H:\source\repos\rea-main\rea-main"
-)
-if not exist "%REA_SOURCE%" (
-    set "REA_SOURCE=H:\source\repos\rea-main"
+    set "REA_SOURCE=%~dp0..\..\rea-hwa"
 )
 
 :: 0. Prerequisite checks (fail early with a clear message)
