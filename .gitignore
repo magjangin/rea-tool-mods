@@ -7,6 +7,9 @@
 tools/*
 !tools/pe_slice.py
 !tools/il2cpp_asm.py
+!tools/pe-slice.mjs
+!tools/il2cpp-asm.mjs
+!tools/README.md
 *.zip
 
 # dotenv files
