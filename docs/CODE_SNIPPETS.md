@@ -103,7 +103,7 @@ private static Signature ReadSignature(string path)
 
 ## 4. IL2CPP 메타데이터 헤더 — `ReadMetadataVersion`
 
-`global-metadata.dat`은 `매직(4바이트) + 버전(int32)`으로 시작합니다. 매직이 다르면 `null`을 반환하고, 호출부에서 "암호화/보호된 메타데이터일 수 있음" 경고를 남깁니다. 프롬프트도 이 경우 **복호화하지 말고 보고 후 멈추도록** 지시합니다.
+`global-metadata.dat`은 `매직(4바이트) + 버전(int32)`으로 시작합니다. 매직이 다르면 `null`을 반환하고, 호출부에서 "암호화/보호된 메타데이터일 수 있음" 경고를 남깁니다.
 
 ```csharp
 private static int? ReadMetadataVersion(Stream stream)

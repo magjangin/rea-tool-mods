@@ -167,7 +167,6 @@ public static class PromptBuilder
                       "내가 다시 하라고 하면 타임아웃을 이유로 거절하지 말고 이렇게 나눠서 다시 해줘.");
         sb.AppendLine($"- 덤프 · 디컴파일 · 압축 해제(Il2CppDumper, Cpp2IL, `ilspycmd -p`, jadx, apktool 등)는 큰 게임에서 몇 분 걸릴 수 있어. " +
                       $"셸 도구 시간 제한에 걸리지 않게 출력을 '{w}\\logs\\' 아래 로그 파일로 남기면서 백그라운드로 실행하고, 끝났는지는 로그 마지막 줄과 산출물로 확인해줘.");
-        sb.AppendLine("- 범위: 로컬·싱글플레이 분석과 모드 제작만. 온라인 게임의 안티치트/DRM/서버 검증 우회, 결제·재화 조작, 암호화된 바이너리나 메타데이터의 복호화는 하지 마.");
         sb.AppendLine();
         sb.AppendLine("## 최종 보고");
         sb.AppendLine("1. 이번에 완료한 단계  2. 산출물 경로  3. 핵심 발견 (진입점, 후킹 후보 등)  4. 다음 세션에서 이어서 할 일");
@@ -270,7 +269,6 @@ public static class PromptBuilder
                - Il2CppDumper가 실패하거나 메타데이터 버전을 지원하지 않으면 Cpp2IL로 재시도해줘 (DummyDll만 생성. 오류 시 Enter를 기다리니 입력을 닫고 실행 — bash `< /dev/null`, cmd `< NUL`):
                  `{Tool(ctx, ToolId.Cpp2Il)} --game-path "{root}" --exe-name "{exeName}" --skip-analysis --disable-registration-prompts --output-root "{w}\cpp2il_out"`
                - 게임 폴더에 BepInEx\interop 또는 MelonLoader\Il2CppAssemblies가 이미 있으면 그 어셈블리를 우선 사용해줘.
-               - global-metadata.dat 시그니처가 표준(0xFAB11BAF)이 아니면 보호된 메타데이터이므로 복호화하지 말고 보고 후 멈춰줘.
             2. 시그니처 탐색
                `{Tool(ctx, ToolId.Ilspy)} -p -o "{w}\src_dummy" "{w}\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`
                - DummyDll은 메서드 본문이 비어 있으므로 클래스/필드/메서드 시그니처와 RVA 주석만 참고해줘.
@@ -335,7 +333,6 @@ public static class PromptBuilder
         var il2cpp = $"""
             2-A. IL2CPP 덤프
                `{Tool(ctx, ToolId.Il2CppDumper)} "{libil2cpp}" "{metadata}" "{w}\il2cpp_dump"`
-               - global-metadata.dat 시그니처가 표준이 아니면 복호화하지 말고 보고 후 멈춰줘.
                - Il2CppDumper가 실패하면 Cpp2IL로 재시도해줘 (APK는 force 옵션 3개를 함께 지정, 버전은 f1 같은 접미사 없이 숫자만. 오류 시 Enter를 기다리니 입력을 닫고 실행 — bash `< /dev/null`, cmd `< NUL`):
                  `{Tool(ctx, ToolId.Cpp2Il)} --game-path "{unzipped}" --force-binary-path "{libil2cpp}" --force-metadata-path "{metadata}" --force-unity-version "{unityVersion}" --skip-analysis --disable-registration-prompts --output-root "{w}\cpp2il_out"`
                `{Tool(ctx, ToolId.Ilspy)} -p -o "{w}\src_dummy" "{w}\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`
@@ -410,7 +407,7 @@ public static class PromptBuilder
             {unpack}
             2. 암호화 여부 확인 (REA `inspect_macho`는 macOS 전용이라 이 PC에서는 못 써)
                `{asm} --check-encryption "{nativeBin}"`
-               - App Store에서 받은 iOS 실행 파일은 FairPlay로 암호화되어 있을 수 있어. cryptid가 0이 아니면(종료 코드 2) 복호화하지 말고 보고 후 멈춰줘 (직접 빌드했거나 암호화되지 않은 빌드만 분석).{macNote}
+               - App Store에서 받은 iOS 실행 파일의 FairPlay 암호화 여부(cryptid)를 확인해줘.{macNote}
             3. 스크립트 코드 추출
                {extract}
                - IL2CPP 덤프 후에는 `{ilspy} -p -o "{w}\src_dummy" "{w}\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`로 시그니처를 확인해줘.

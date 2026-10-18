@@ -190,8 +190,9 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
     Need(p.Contains($"- 작업 디렉터리: {w}"), "작업 디렉터리");
     Need(p.Contains("## 0. 작업 폴더 상태") && p.Contains("## 사용할 도구") && p.Contains("## 수행 지침") &&
          p.Contains("## 공통 규칙") && p.Contains("## 최종 보고"), "필수 섹션");
-    Need(p.Contains("범위: 로컬·싱글플레이"), "범위 규칙");
-    // Unity 가드레일(시작 전 확인 · 온라인 판정 · 웹 검색 · 안전장치)은 뺐음: 어떤 타겟에도 없어야 함
+    // 가드레일 · 공통 범위 규칙 · 복호화 멈춤 지시는 뺐음: 어떤 타겟에도 없어야 함
+    Need(!p.Contains("범위: 로컬·싱글플레이"), "공통 범위 규칙이 남아 있음");
+    Need(!p.Contains("복호화하지 말고"), "복호화 멈춤 지시가 남아 있음");
     Need(!p.Contains("## 시작 전 확인") && !p.Contains("가드레일") && !p.Contains("구조 → 덤프 → 웹 검색"), "Unity 가드레일 섹션이 남아 있음");
     Need(!Regex.IsMatch(p, @"\{[A-Za-z_]+\}"), "치환 안 된 {변수}");
     Need(!p.Contains("ReaToolMods.") && !p.Contains("System.Collections"), "객체 ToString 노출");

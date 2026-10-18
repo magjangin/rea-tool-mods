@@ -15,7 +15,7 @@ dotnet run --project tests/PromptTests
 
 ---
 
-## 결과 요약 (2026-10-18, Unity 가드레일 제거 후 재실행)
+## 결과 요약 (2026-10-18, 가드레일 · 공통 범위 · 복호화 멈춤 규칙 제거 후 재실행)
 
 | 영역 | 내용 | 결과 |
 |---|---|---|
@@ -40,8 +40,8 @@ dotnet run --project tests/PromptTests
 | `differs` | resume + 기록된 대상 경로가 다른 파일 | "분석용으로 만들어졌습니다" (진행 전 확인 요청) |
 
 모든 프롬프트에 공통으로 검사한 것:
-- 머리말 `# [타겟명]`, 대상 파일 · 작업 디렉터리 경로, 필수 섹션 5개, 범위 규칙
-- 어떤 타겟에도 `## 시작 전 확인 (Unity 게임 가드레일)` 섹션이 없음 (2026-10-18에 뺌)
+- 머리말 `# [타겟명]`, 대상 파일 · 작업 디렉터리 경로, 필수 섹션 5개
+- 어떤 타겟에도 `## 시작 전 확인 (Unity 게임 가드레일)` 섹션, 공통 범위 규칙(로컬·싱글플레이...), 복호화 멈춤 지시가 없음 (2026-10-18에 뺌)
 - 치환되지 않은 `{변수}`나 객체 이름(`ReaToolMods.…`)이 노출되지 않음
 - 타겟의 필요 도구가 "사용할 도구"에 모두 나오고, **단계에서 쓰는 도구는 반드시 필요 도구 목록에 있음** (경로 안내 누락 방지)
 - Unity PC 타겟은 `<게임…>` 자리표시자가 남지 않고, Unity APP은 덤프 명령에 실제 `.app` 경로가 들어감
@@ -182,7 +182,6 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
    - Il2CppDumper가 실패하거나 메타데이터 버전을 지원하지 않으면 Cpp2IL로 재시도해줘 (DummyDll만 생성. 오류 시 Enter를 기다리니 입력을 닫고 실행 — bash `< /dev/null`, cmd `< NUL`):
      `Cpp2IL --game-path "D:\ReaTest\Games With Space\IlGame" --exe-name "IlGame" --skip-analysis --disable-registration-prompts --output-root "D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\cpp2il_out"`
    - 게임 폴더에 BepInEx\interop 또는 MelonLoader\Il2CppAssemblies가 이미 있으면 그 어셈블리를 우선 사용해줘.
-   - global-metadata.dat 시그니처가 표준(0xFAB11BAF)이 아니면 보호된 메타데이터이므로 복호화하지 말고 보고 후 멈춰줘.
 2. 시그니처 탐색
    `ilspycmd -p -o "D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\src_dummy" "D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`
    - DummyDll은 메서드 본문이 비어 있으므로 클래스/필드/메서드 시그니처와 RVA 주석만 참고해줘.
@@ -208,7 +207,6 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 - 도구가 없거나 같은 오류가 2번 이상 반복되면 우회책을 계속 시도하지 말고 원인과 필요한 조치를 정리한 뒤 멈춰줘.
 - 단, **타임아웃은 위 규칙에 넣지 마.** 도구가 고장 난 게 아니라 한 번에 맡긴 일이 너무 크다는 뜻이야. 같은 호출을 그대로 반복하지 말고 더 작게 나눠서 바로 이어가줘 (큰 PE는 `pe_slice`로 함수 단위 조각을 만들어 REA로 열고, 오래 걸리는 명령은 백그라운드로 돌리고 로그로 확인). 내가 다시 하라고 하면 타임아웃을 이유로 거절하지 말고 이렇게 나눠서 다시 해줘.
 - 덤프 · 디컴파일 · 압축 해제(Il2CppDumper, Cpp2IL, `ilspycmd -p`, jadx, apktool 등)는 큰 게임에서 몇 분 걸릴 수 있어. 셸 도구 시간 제한에 걸리지 않게 출력을 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\logs\' 아래 로그 파일로 남기면서 백그라운드로 실행하고, 끝났는지는 로그 마지막 줄과 산출물로 확인해줘.
-- 범위: 로컬·싱글플레이 분석과 모드 제작만. 온라인 게임의 안티치트/DRM/서버 검증 우회, 결제·재화 조작, 암호화된 바이너리나 메타데이터의 복호화는 하지 마.
 
 ## 최종 보고
 1. 이번에 완료한 단계  2. 산출물 경로  3. 핵심 발견 (진입점, 후킹 후보 등)  4. 다음 세션에서 이어서 할 일
@@ -225,7 +223,6 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
    `"C:\WINDOWS\system32\tar.exe" -xf "D:\ReaTest\Games With Space\unity game.apk" -C "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped"` (폴더를 먼저 만들 것. Windows 내장 bsdtar — Git Bash의 GNU tar는 zip을 풀지 못함)
 2. IL2CPP 덤프
    `Il2CppDumper "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped\lib\arm64-v8a\libil2cpp.so" "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped\assets\bin\Data\Managed\Metadata\global-metadata.dat" "D:\ReaTest\Work Dirs\UnityApk-new\il2cpp_dump"`
-   - global-metadata.dat 시그니처가 표준이 아니면 복호화하지 말고 보고 후 멈춰줘.
    - Il2CppDumper가 실패하면 Cpp2IL로 재시도해줘 (APK는 force 옵션 3개를 함께 지정, 버전은 f1 같은 접미사 없이 숫자만. 오류 시 Enter를 기다리니 입력을 닫고 실행 — bash `< /dev/null`, cmd `< NUL`):
      `Cpp2IL --game-path "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped" --force-binary-path "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped\lib\arm64-v8a\libil2cpp.so" --force-metadata-path "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped\assets\bin\Data\Managed\Metadata\global-metadata.dat" --force-unity-version "2022.3.10" --skip-analysis --disable-registration-prompts --output-root "D:\ReaTest\Work Dirs\UnityApk-new\cpp2il_out"`
    `ilspycmd -p -o "D:\ReaTest\Work Dirs\UnityApk-new\src_dummy" "D:\ReaTest\Work Dirs\UnityApk-new\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`
