@@ -194,6 +194,7 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
     Need(!p.Contains("범위: 로컬·싱글플레이"), "공통 범위 규칙이 남아 있음");
     Need(!p.Contains("복호화하지 말고"), "복호화 멈춤 지시가 남아 있음");
     Need(!p.Contains("## 시작 전 확인") && !p.Contains("가드레일") && !p.Contains("구조 → 덤프 → 웹 검색"), "Unity 가드레일 섹션이 남아 있음");
+    Need(!p.Contains("안티치트") && !p.Contains("DRM") && !p.Contains("크랙") && !p.Contains("서버 검증"), "안티치트/DRM/크랙/서버 검증 문구가 남아 있음");
     Need(!Regex.IsMatch(p, @"\{[A-Za-z_]+\}"), "치환 안 된 {변수}");
     Need(!p.Contains("ReaToolMods.") && !p.Contains("System.Collections"), "객체 ToString 노출");
 
