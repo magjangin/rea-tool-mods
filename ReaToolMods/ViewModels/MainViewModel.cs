@@ -42,10 +42,10 @@ public partial class MainViewModel : ViewModelBase
     public partial string Title { get; set; } = "REA Tool Mods";
 
     [ObservableProperty]
-    public partial string ReaRepoUrl { get; set; } = "https://github.com/morluto/rea";
+    public partial string ReaRepoUrl { get; set; } = "https://github.com/magjangin/rea-hwa";
 
     [ObservableProperty]
-    public partial string ReaReleasesUrl { get; set; } = "https://github.com/morluto/rea/releases";
+    public partial string ReaReleasesUrl { get; set; } = "https://github.com/magjangin/rea-hwa/releases";
 
     [ObservableProperty]
     public partial string TargetFilePath { get; set; } = "";
@@ -550,7 +550,25 @@ public partial class MainViewModel : ViewModelBase
         {
             if (OperatingSystem.IsWindows())
             {
-                Process.Start(new ProcessStartInfo("cmd", $"/c start \"\" \"{target.Replace("&", "^&")}\"") { CreateNoWindow = true });
+                try
+                {
+                    var escaped = target.Replace("&", "^&");
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "cmd",
+                        Arguments = $"/c start \"\" \"{escaped}\"",
+                        CreateNoWindow = true
+                    });
+                }
+                catch
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "explorer.exe",
+                        Arguments = target,
+                        UseShellExecute = true
+                    });
+                }
             }
         }
     }

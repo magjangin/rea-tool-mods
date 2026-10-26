@@ -11,7 +11,7 @@ if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
 for %%I in ("%TOOLS_DIR%") do set "TOOLS_DIR=%%~fI"
 
 :: 1. .NET DLL / EXE Decompiler (ilspycmd)
-echo [1/7] Checking and installing .NET analysis tool (ilspycmd)...
+echo [1/8] Checking and installing .NET analysis tool (ilspycmd)...
 dotnet tool update -g ilspycmd > nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo  - ilspycmd ready: installed or updated globally.
@@ -22,7 +22,7 @@ if %ERRORLEVEL% equ 0 (
 echo.
 
 :: 2. Electron / JS App Unpacker (@electron/asar)
-echo [2/7] Checking APP / Electron package (.asar) tool...
+echo [2/8] Checking APP / Electron package (.asar) tool...
 call npm install -g @electron/asar --silent > nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo  - @electron/asar ready: npx asar command is available.
@@ -32,7 +32,7 @@ if %ERRORLEVEL% equ 0 (
 echo.
 
 :: 3. Android APK Decompiler (JADX latest release)
-echo [3/7] Downloading and setting up APK decompiler (JADX)...
+echo [3/8] Downloading and setting up APK decompiler (JADX)...
 set "JADX_DIR=%TOOLS_DIR%\jadx"
 if exist "%JADX_DIR%\bin\jadx.bat" (
     echo  - JADX is already installed: %JADX_DIR%
@@ -49,7 +49,7 @@ if exist "%JADX_DIR%\bin\jadx.bat" (
 echo.
 
 :: 4. Android APK Resource Tool (Apktool)
-echo [4/7] Setting up APK resource decoder (Apktool)...
+echo [4/8] Setting up APK resource decoder (Apktool)...
 set "APKTOOL_DIR=%TOOLS_DIR%\apktool"
 if not exist "%APKTOOL_DIR%" mkdir "%APKTOOL_DIR%"
 if exist "%APKTOOL_DIR%\apktool.jar" (
@@ -73,7 +73,7 @@ if exist "%APKTOOL_DIR%\apktool.jar" (
 echo.
 
 :: 5. Unity IL2CPP metadata dumper (Il2CppDumper)
-echo [5/7] Setting up Unity IL2CPP dumper (Il2CppDumper)...
+echo [5/8] Setting up Unity IL2CPP dumper (Il2CppDumper)...
 set "IL2CPPDUMPER_DIR=%TOOLS_DIR%\il2cppdumper"
 if exist "%IL2CPPDUMPER_DIR%\Il2CppDumper.exe" (
     echo  - Il2CppDumper is already installed: %IL2CPPDUMPER_DIR%
@@ -99,7 +99,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 echo.
 
 :: 6. Unity IL2CPP alternative dumper (Cpp2IL, newer metadata versions)
-echo [6/7] Setting up Unity IL2CPP alternative dumper (Cpp2IL)...
+echo [6/8] Setting up Unity IL2CPP alternative dumper (Cpp2IL)...
 set "CPP2IL_DIR=%TOOLS_DIR%\cpp2il"
 if exist "%CPP2IL_DIR%\Cpp2IL.exe" (
     echo  - Cpp2IL is already installed: %CPP2IL_DIR%
@@ -117,7 +117,7 @@ if exist "%CPP2IL_DIR%\Cpp2IL.exe" (
 echo.
 
 :: 7. Ghidra native decompiler (needs JDK 21+; REA reads GHIDRA_INSTALL_DIR)
-echo [7/7] Setting up Ghidra (native decompiler, JDK 21+ required)...
+echo [7/8] Setting up Ghidra (native decompiler, JDK 21+ required)...
 set "JDK21="
 for /f "usebackq delims=" %%J in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$d = Get-ChildItem 'C:\Program Files\Eclipse Adoptium','C:\Program Files\Java','C:\Program Files\Microsoft' -Directory -Filter 'jdk-*' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^jdk-(\d+)' -and [int]$Matches[1] -ge 21 -and (Test-Path (Join-Path $_.FullName 'bin\javac.exe')) } | Sort-Object Name -Descending | Select-Object -First 1; if ($d) { $d.FullName }"`) do set "JDK21=%%J"
 if not defined JDK21 (
@@ -161,6 +161,22 @@ if defined GHIDRA_FOUND (
 :ghidra_done
 echo.
 
+:: 8. Python capstone for PE slice & IL2CPP ASM
+echo [8/8] Checking Python and capstone (for pe_slice and il2cpp_asm)...
+where python > nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    python -c "import capstone" > nul 2>&1
+    if %ERRORLEVEL% equ 0 (
+        echo  - capstone is already installed for Python.
+    ) else (
+        echo  - Installing capstone via pip: pip install capstone
+        pip install capstone
+    )
+) else (
+    echo  - Warning: Python 3 not found on PATH. Install Python 3 and pip install capstone for pe_slice.
+)
+echo.
+
 echo ===================================================================
 echo   [Setup Complete] All analysis tools are ready:
 echo   - Tools directory  : %TOOLS_DIR%
@@ -171,6 +187,7 @@ echo   - APK Resource     : %TOOLS_DIR%\apktool\apktool.bat
 echo   - Unity IL2CPP     : %TOOLS_DIR%\il2cppdumper\Il2CppDumper.exe
 echo   - Unity IL2CPP alt : %TOOLS_DIR%\cpp2il\Cpp2IL.exe
 echo   - Native (Ghidra)  : !GHIDRA_INSTALL_DIR! ^(JDK 21+^)
+echo   - Slicing tools    : pe_slice.py / il2cpp_asm.py (capstone)
 echo ===================================================================
 echo.
 pause

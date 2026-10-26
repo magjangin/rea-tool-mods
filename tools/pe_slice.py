@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-pe_slice — 큰 x64 PE(GameAssembly.dll 등)에서 보고 싶은 함수가 쓰는 페이지만 담은 작은 PE를 만듭니다.
+pe_slice — 큰 PE(x64/x86, GameAssembly.dll 등)에서 보고 싶은 함수가 쓰는 페이지만 담은 작은 PE를 만듭니다.
 
 REA의 Windows Ghidra는 PE만 받고, 열 때 파일 전체를 자동 분석합니다. 수십 MB짜리 GameAssembly.dll을
 통째로 열면 분석이 MCP 호출 시간 제한보다 길어 타임아웃이 납니다. 이 도구로 만든 조각 PE(수백 KB)는
@@ -51,11 +51,19 @@ class Pe:
         machine, nsec = struct.unpack_from("<HH", b, pe + 4)
         optsz = struct.unpack_from("<H", b, pe + 20)[0]
         opt = pe + 24
-        if machine != 0x8664 or struct.unpack_from("<H", b, opt)[0] != 0x20B:
-            die("x64 PE(PE32+)만 지원합니다. 32비트 바이너리는 크기가 작으면 REA로 통째로 열어 주세요.")
-        self.base = struct.unpack_from("<Q", b, opt + 24)[0]
-        ndirs = struct.unpack_from("<I", b, opt + 108)[0]
-        self.exc_rva, self.exc_size = struct.unpack_from("<II", b, opt + 112 + 8 * 3) if ndirs > 3 else (0, 0)
+        magic = struct.unpack_from("<H", b, opt)[0]
+        if machine == 0x8664 and magic == 0x20B:
+            self.is64 = True
+            self.base = struct.unpack_from("<Q", b, opt + 24)[0]
+            ndirs_off, dirs_off = opt + 108, opt + 112
+        elif machine == 0x14C and magic == 0x10B:
+            self.is64 = False
+            self.base = struct.unpack_from("<I", b, opt + 28)[0]
+            ndirs_off, dirs_off = opt + 92, opt + 96
+        else:
+            die("x64(PE32+) 또는 x86(PE32) PE만 지원합니다.")
+        ndirs = struct.unpack_from("<I", b, ndirs_off)[0]
+        self.exc_rva, self.exc_size = struct.unpack_from("<II", b, dirs_off + 8 * 3) if ndirs > 3 else (0, 0)
         self.secs = []
         s = opt + optsz
         for i in range(nsec):
@@ -190,7 +198,7 @@ class Names:
 def collect_refs(pe, ranges, known_starts):
     calls, datas = set(), set()
     try:
-        from capstone import Cs, CS_ARCH_X86, CS_MODE_64
+        from capstone import Cs, CS_ARCH_X86, CS_MODE_64, CS_MODE_32
         from capstone.x86 import X86_OP_IMM, X86_OP_MEM, X86_REG_RIP
     except ImportError:
         # capstone이 없으면 E8/E9 rel32 중 알려진 함수 시작을 가리키는 것만 호출로 봄 (데이터 이름은 없음)
@@ -204,15 +212,23 @@ def collect_refs(pe, ranges, known_starts):
                         calls.add(t)
         return calls, datas, False
 
-    md = Cs(CS_ARCH_X86, CS_MODE_64)
+    md = Cs(CS_ARCH_X86, CS_MODE_64 if pe.is64 else CS_MODE_32)
     md.detail = True
     for start, end in ranges:
         for ins in md.disasm(pe.read(start, end - start), start):
             for op in ins.operands:
                 if op.type == X86_OP_IMM and ins.mnemonic in ("call", "jmp") and not (start <= op.imm < end):
                     calls.add(op.imm)
-                elif op.type == X86_OP_MEM and op.mem.base == X86_REG_RIP:
-                    datas.add(ins.address + ins.size + op.mem.disp)
+                elif op.type == X86_OP_MEM:
+                    if pe.is64:
+                        if op.mem.base == X86_REG_RIP:
+                            datas.add(ins.address + ins.size + op.mem.disp)
+                    else:
+                        # x86엔 RIP가 없음: 절대주소 모드([disp]만, base/index 없음)는 코드에 VA가 그대로 박혀있음
+                        if op.mem.base == 0 and op.mem.index == 0 and op.mem.disp:
+                            rva = op.mem.disp - pe.base
+                            if 0 < rva < 0x7FFFFFFF:
+                                datas.add(rva)
     return calls, datas, True
 
 
@@ -256,7 +272,8 @@ def write_pe(path, pe, ranges, exports):
     sections.append(dict(name=b".edata", va=edata_va, vs=len(ed), raw=bytes(ed), ch=0x40000040))
 
     nsec = len(sections)
-    size_headers = (0x40 + 4 + 20 + 0xF0 + 40 * nsec + FALIGN - 1) & ~(FALIGN - 1)
+    opt_size = 0xF0 if pe.is64 else 0xE0
+    size_headers = (0x40 + 4 + 20 + opt_size + 40 * nsec + FALIGN - 1) & ~(FALIGN - 1)
     if size_headers > sections[0]["va"]:
         die("섹션이 너무 많습니다. 대상 함수를 줄여 주세요.")
     fo = size_headers
@@ -270,15 +287,26 @@ def write_pe(path, pe, ranges, exports):
     out[0:2] = b"MZ"
     struct.pack_into("<I", out, 0x3C, 0x40)
     out[0x40:0x44] = b"PE\0\0"
-    struct.pack_into("<HHIIIHH", out, 0x44, 0x8664, nsec, 0, 0, 0, 0xF0, 0x2022)   # x64 · DLL
+    machine = 0x8664 if pe.is64 else 0x14C
+    characteristics = 0x2022 if pe.is64 else 0x2102   # DLL | EXECUTABLE_IMAGE | (x64: LARGE_ADDRESS_AWARE / x86: 32BIT_MACHINE)
+    struct.pack_into("<HHIIIHH", out, 0x44, machine, nsec, 0, 0, 0, opt_size, characteristics)
     o = 0x58
-    struct.pack_into("<HBBIIIII", out, o, 0x20B, 14, 0, 0, 0, 0, 0, 0)
-    struct.pack_into("<Q", out, o + 24, pe.base)
-    struct.pack_into("<IIHHHHHHIIIIHH", out, o + 32, PAGE, FALIGN, 6, 0, 0, 0, 6, 0, 0,
-                     size_image, size_headers, 0, 2, 0)
-    struct.pack_into("<QQQQII", out, o + 72, 0x100000, 0x1000, 0x100000, 0x1000, 0, 16)
-    struct.pack_into("<II", out, o + 112, edata_va, len(ed))     # export directory
-    so = o + 0xF0
+    if pe.is64:
+        struct.pack_into("<HBBIIIII", out, o, 0x20B, 14, 0, 0, 0, 0, 0, 0)
+        struct.pack_into("<Q", out, o + 24, pe.base)
+        struct.pack_into("<IIHHHHHHIIIIHH", out, o + 32, PAGE, FALIGN, 6, 0, 0, 0, 6, 0, 0,
+                         size_image, size_headers, 0, 2, 0)
+        struct.pack_into("<QQQQII", out, o + 72, 0x100000, 0x1000, 0x100000, 0x1000, 0, 16)
+        struct.pack_into("<II", out, o + 112, edata_va, len(ed))     # export directory
+    else:
+        struct.pack_into("<HBBIIIII", out, o, 0x10B, 14, 0, 0, 0, 0, 0, 0)
+        struct.pack_into("<I", out, o + 24, 0)                        # BaseOfData (안 씀)
+        struct.pack_into("<I", out, o + 28, pe.base)
+        struct.pack_into("<IIHHHHHHIIIIHH", out, o + 32, PAGE, FALIGN, 6, 0, 0, 0, 6, 0, 0,
+                         size_image, size_headers, 0, 2, 0)
+        struct.pack_into("<IIIIII", out, o + 72, 0x100000, 0x1000, 0x100000, 0x1000, 0, 16)
+        struct.pack_into("<II", out, o + 96, edata_va, len(ed))      # export directory
+    so = o + opt_size
     for i, s in enumerate(sections):
         struct.pack_into("<8sIIIIIIHHI", out, so + 40 * i, s["name"], s["vs"], s["va"],
                          s["rs"], s["rp"], 0, 0, 0, 0, s["ch"])
