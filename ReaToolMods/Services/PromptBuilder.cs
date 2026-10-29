@@ -231,9 +231,10 @@ public static class PromptBuilder
             2. 구조 분석
                - AndroidManifest의 메인 액티비티, 권한, lib\<abi>\*.so 네이티브 라이브러리 목록을 '{w}\docs\analysis.md'에 정리해줘.
                - libunity.so / libil2cpp.so가 보이면 Unity 앱이므로 'Unity APK' 프리셋으로 다시 진행하자고 알려줘.
-            3. 에뮬레이터 실행 검증
-               - 먼저 `bat\check_android_emulator_env.bat`로 VT·녹스·ADB 상태를 확인해줘.
-               - `{adb} install -r "{t}"` → `{adb} shell monkey -p <패키지명> 1` → `{adb} logcat`으로 동작을 확인해줘.
+            3. 실행 검증 (USB 연결 스마트폰 우선, 없으면 녹스 에뮬레이터)
+               - 먼저 `{adb} devices`를 실행해 USB로 연결된 실제 스마트폰 기기(device)가 있는지 확인해줘.
+               - 실제 스마트폰이 연결되어 있다면 가급적 그 실기기를 우선 사용하고, 연결된 기기가 없다면 `bat\check_android_emulator_env.bat`로 VT·녹스·ADB 상태를 확인하고 녹스 에뮬레이터로 진행해줘.
+               - `{adb} install -r "{t}"` → `{adb} shell monkey -p <패키지명> 1` → `{adb} logcat`으로 동작을 확인해줘 (연결된 기기가 여러 대면 `-s <기기ID>` 지정).
             """;
     }
 
@@ -353,17 +354,18 @@ public static class PromptBuilder
 
         return $"""
             0. APK 확보 (파일이 없을 때만)
-               - `bat\check_android_emulator_env.bat`로 CPU 가상화(VT)·녹스 설치/실행·ADB 연결을 먼저 확인해줘.
-               - 녹스에 직접 설치한 앱이라면 `{adb} shell pm list packages -3`로 패키지명을 찾고, `{adb} shell pm path <패키지명>`에 나온 base.apk와 split APK를 모두 `{adb} pull`로 '{w}\apk'에 가져와줘.
+               - 먼저 `{adb} devices`로 기기 목록을 확인해줘. USB로 연결된 실제 스마트폰(실기기)이 있으면 가급적 그 기기를 우선 사용하고, 연결된 실기기가 없다면 `bat\check_android_emulator_env.bat`로 CPU 가상화(VT)·녹스 설치/실행·ADB 연결을 확인해줘.
+               - 스마트폰(또는 녹스)에 직접 설치한 앱이라면 `{adb} shell pm list packages -3`로 패키지명을 찾고, `{adb} shell pm path <패키지명>`에 나온 base.apk와 split APK를 모두 `{adb} pull`로 '{w}\apk'에 가져와줘 (기기가 여러 대면 `-s <기기ID>` 지정).
             1. 압축 해제
                `{Tar} -xf "{t}" -C "{unzipped}"` (폴더를 먼저 만들 것. Windows 내장 bsdtar — Git Bash의 GNU tar는 zip을 풀지 못함){split}
             {scriptStep}
             3. Java/네이티브 브리지 확인
                `{Tool(ctx, ToolId.Jadx)} -d "{w}\jadx_src" "{t}"`
                - UnityPlayerActivity 확장 여부, 네이티브 플러그인/SDK 브리지를 확인해 '{w}\docs\analysis.md'에 정리해줘.
-            4. 녹스 실행 검증
-               - `{adb} connect 127.0.0.1:62001` (녹스 기본 포트, 다중 인스턴스는 62025부터) 후
-                 `{adb} install -r "{t}"` (분할 패키지는 `install-multiple`) → `{adb} logcat -s Unity`로 런타임 로그를 확인해줘.
+            4. 실행 검증 (USB 연결 스마트폰 우선, 없으면 녹스 에뮬레이터)
+               - `{adb} devices`로 확인하여 USB 연결된 실제 안드로이드 스마트폰이 있으면 해당 실기기를 우선 사용해줘.
+               - 실기기가 연결되어 있지 않은 경우에만 녹스 에뮬레이터 포트(`{adb} connect 127.0.0.1:62001`, 다중 인스턴스는 62025부터)로 연결해줘.
+               - `{adb} install -r "{t}"` (분할 패키지는 `install-multiple`) → `{adb} logcat -s Unity`로 런타임 로그를 확인해줘 (기기가 여러 대면 `-s <기기ID>` 지정).
             """;
     }
 

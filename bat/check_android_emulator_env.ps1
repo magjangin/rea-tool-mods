@@ -118,7 +118,7 @@ $noxRunning = [bool](Get-Process -Name Nox, NoxVMHandle, NoxVMSVC)
 if ($noxRunning) {
     Ok "Nox is running."
 } else {
-    Warn "Nox is not running. Start Nox and run this check again to test ADB."
+    Info "Nox is not running. (USB 스마트폰을 사용할 경우 녹스를 켜지 않아도 됩니다.)"
 }
 Write-Host ""
 
@@ -148,23 +148,30 @@ if (-not $adb) {
         ForEach-Object { ($_ -split "`t")[0] })
 
     if ($devices.Count -eq 0 -and -not $noxRunning) {
-        Info "Device test skipped (Nox is not running)."
+        Info "No device connected (Nox is not running and no USB phone detected)."
     } elseif ($devices.Count -eq 0) {
         Warn "Nox is running but no device is connected."
         Info "Wait for the Android home screen, then run this check again."
     } else {
+        $realCount = 0
         foreach ($d in $devices) {
             $model = (& $adb -s $d shell getprop ro.product.model 2>$null | Out-String).Trim()
             $release = (& $adb -s $d shell getprop ro.build.version.release 2>$null | Out-String).Trim()
             $abis = (& $adb -s $d shell getprop ro.product.cpu.abilist 2>$null | Out-String).Trim()
-            Ok "$d  - $model, Android $release"
+            $isReal = $d -notmatch '^(127\.0\.0\.1|localhost|emulator-)'
+            if ($isReal) { $realCount++ }
+            $tag = if ($isReal) { "[USB 실기기]" } else { "[녹스 에뮬레이터]" }
+            Ok "$d $tag - $model, Android $release"
             Info "ABI: $abis"
             if ($abis -notmatch 'arm') {
                 Warn "This instance reports no ARM ABI; ARM-only Unity builds (lib/arm64-v8a/libil2cpp.so) may not install."
             }
         }
+        if ($realCount -gt 0) {
+            Info "USB로 연결된 스마트폰(실기기)이 감지되었습니다! 녹스 대신 실기기로 우선 분석할 수 있습니다."
+        }
         Write-Host ""
-        Info "Next steps for an app you installed in Nox:"
+        Info "Next steps for an app you installed in your phone or Nox:"
         Info "  `"$adb`" -s <device> shell pm list packages -3"
         Info "  `"$adb`" -s <device> shell pm path <package>"
         Info "  `"$adb`" -s <device> pull <each path from pm path> <work folder>\apk"
