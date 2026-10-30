@@ -91,6 +91,7 @@ PC로 가져오기 — **파일 이름을 `<패키지명>.apk`로 바꿔서 저�
 | 2-B. Mono | `ilspycmd -p`로 `assets\bin\Data\Managed\Assembly-CSharp.dll` 디컴파일 | `src\` |
 | 3. Java 쪽 | JADX로 `UnityPlayerActivity` 확장, 네이티브 플러그인·SDK 연결부 확인 | `jadx_src\`, `docs\analysis.md` |
 | 4. 실행 검증 | 녹스에 설치(`install -r`, 분할은 `install-multiple`) 후 `logcat -s Unity`로 런타임 로그 확인 | `logs\` |
+| 5. 리패키징 · Frida (선택) | Smali/라이브러리 수정 또는 비루팅 Frida Gadget 주입 시, Apktool 빌드 후 `uber-apk-signer`로 zipalign + v2 서명 | `dist\`, `rebuilt-aligned-debugSigned.apk` |
 
 `global-metadata.dat`의 시그니처가 표준(`0xFAB11BAF`)이 아니면 보호된 메타데이터이므로, 에이전트는 복호화를 시도하지 않고 보고 후 멈춥니다.
 

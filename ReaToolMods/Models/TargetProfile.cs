@@ -45,7 +45,7 @@ public static class TargetCatalog
             [ToolId.DotnetSdk, ToolId.Ilspy]),
         new(TargetKind.Apk, "APK", "📱", "APK (Java 디컴파일 & ADB)", "-android",
             [".apk", ".xapk", ".apks", ".aab"], false,
-            [ToolId.Java, ToolId.Jadx, ToolId.Apktool, ToolId.Adb]),
+            [ToolId.Java, ToolId.Jadx, ToolId.Apktool, ToolId.Adb, ToolId.UberApkSigner]),
         new(TargetKind.App, "APP", "📦", "APP (ASAR 언팩 & 앱 실행)", "-electron",
             [".asar", ".zip", ".exe"], false,
             [ToolId.Node, ToolId.Asar]),

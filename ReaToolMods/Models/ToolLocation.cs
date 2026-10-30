@@ -14,7 +14,8 @@ public enum ToolId
     Adb,
     ReaCli,
     PeSlice,
-    Il2CppAsm
+    Il2CppAsm,
+    UberApkSigner
 }
 
 /// <summary>

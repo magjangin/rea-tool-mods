@@ -223,10 +223,12 @@ public static class PromptBuilder
     {
         var (t, w) = (Target(ctx), ctx.WorkDir);
         var adb = Tool(ctx, ToolId.Adb);
+        var apktool = Tool(ctx, ToolId.Apktool);
+        var signer = Tool(ctx, ToolId.UberApkSigner);
         return $"""
             1. 소스 및 리소스 디컴파일
                `{Tool(ctx, ToolId.Jadx)} -d "{w}\jadx_src" "{t}"`
-               `{Tool(ctx, ToolId.Apktool)} d -f -o "{w}\apktool_out" "{t}"`
+               `{apktool} d -f -o "{w}\apktool_out" "{t}"`
                - XAPK/APKS 같은 분할 패키지면 base.apk와 config.*.apk를 각각 처리해줘.
             2. 구조 분석
                - AndroidManifest의 메인 액티비티, 권한, lib\<abi>\*.so 네이티브 라이브러리 목록을 '{w}\docs\analysis.md'에 정리해줘.
@@ -235,6 +237,11 @@ public static class PromptBuilder
                - 먼저 `{adb} devices`를 실행해 USB로 연결된 실제 스마트폰 기기(device)가 있는지 확인해줘.
                - 실제 스마트폰이 연결되어 있다면 가급적 그 실기기를 우선 사용하고, 연결된 기기가 없다면 `bat\check_android_emulator_env.bat`로 VT·녹스·ADB 상태를 확인하고 녹스 에뮬레이터로 진행해줘.
                - `{adb} install -r "{t}"` → `{adb} shell monkey -p <패키지명> 1` → `{adb} logcat`으로 동작을 확인해줘 (연결된 기기가 여러 대면 `-s <기기ID>` 지정).
+            4. 리패키징 및 Frida Gadget 동적 후킹 (선택)
+               - Smali 코드나 네이티브 라이브러리를 수정한 뒤 APK를 다시 패키징할 때는 apktool로 빌드하고 uber-apk-signer로 정렬/서명해줘:
+                 `{apktool} b "{w}\apktool_out" -o "{w}\dist\rebuilt.unsigned.apk"`
+                 `{signer} --apks "{w}\dist\rebuilt.unsigned.apk" -o "{w}\dist"`
+               - 루팅되지 않은 기기에서 Frida 동적 분석이 필요하면 `tools\frida-gadget\libfrida-gadget-arm64.so`를 `{w}\apktool_out\lib\<abi>\libfrida-gadget.so`로 복사하고, 진입점 액티비티 Smali에 `System.loadLibrary("frida-gadget")`를 삽입한 후 재서명하여 `{adb} install -r`로 설치해줘.
             """;
     }
 

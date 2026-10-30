@@ -76,6 +76,10 @@ public static class ToolLocator
                     ? ExistingFile(asm)
                     : null,
                 @"Python 3 설치 후 pip install capstone (tools\il2cpp_asm.py · bat\il2cpp_asm.bat 필요)"),
+            new ToolLocation(ToolId.UberApkSigner, "uber-apk-signer", "uber-apk-signer",
+                (File.Exists(Path.Combine(ToolsDir, "uber-apk-signer", "uber-apk-signer.jar"))
+                    ? ExistingFile(Path.Combine(ToolsDir, "uber-apk-signer", "uber-apk-signer.bat"))
+                    : null) ?? FindOnPath("uber-apk-signer"), downloader),
         };
 
         return list.ToDictionary(t => t.Id);

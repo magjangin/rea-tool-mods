@@ -11,7 +11,7 @@ if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
 for %%I in ("%TOOLS_DIR%") do set "TOOLS_DIR=%%~fI"
 
 :: 1. .NET DLL / EXE Decompiler (ilspycmd)
-echo [1/8] Checking and installing .NET analysis tool (ilspycmd)...
+echo [1/10] Checking and installing .NET analysis tool (ilspycmd)...
 dotnet tool update -g ilspycmd > nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo  - ilspycmd ready: installed or updated globally.
@@ -22,7 +22,7 @@ if %ERRORLEVEL% equ 0 (
 echo.
 
 :: 2. Electron / JS App Unpacker (@electron/asar)
-echo [2/8] Checking APP / Electron package (.asar) tool...
+echo [2/10] Checking APP / Electron package (.asar) tool...
 call npm install -g @electron/asar --silent > nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo  - @electron/asar ready: npx asar command is available.
@@ -32,7 +32,7 @@ if %ERRORLEVEL% equ 0 (
 echo.
 
 :: 3. Android APK Decompiler (JADX latest release)
-echo [3/8] Downloading and setting up APK decompiler (JADX)...
+echo [3/10] Downloading and setting up APK decompiler (JADX)...
 set "JADX_DIR=%TOOLS_DIR%\jadx"
 if exist "%JADX_DIR%\bin\jadx.bat" (
     echo  - JADX is already installed: %JADX_DIR%
@@ -49,7 +49,7 @@ if exist "%JADX_DIR%\bin\jadx.bat" (
 echo.
 
 :: 4. Android APK Resource Tool (Apktool)
-echo [4/8] Setting up APK resource decoder (Apktool)...
+echo [4/10] Setting up APK resource decoder (Apktool)...
 set "APKTOOL_DIR=%TOOLS_DIR%\apktool"
 if not exist "%APKTOOL_DIR%" mkdir "%APKTOOL_DIR%"
 if exist "%APKTOOL_DIR%\apktool.jar" (
@@ -72,8 +72,50 @@ if exist "%APKTOOL_DIR%\apktool.jar" (
 )
 echo.
 
-:: 5. Unity IL2CPP metadata dumper (Il2CppDumper)
-echo [5/8] Setting up Unity IL2CPP dumper (Il2CppDumper)...
+:: 5. Android APK Signer (uber-apk-signer)
+echo [5/10] Setting up APK signer (uber-apk-signer)...
+set "UBER_SIGNER_DIR=%TOOLS_DIR%\uber-apk-signer"
+if not exist "%UBER_SIGNER_DIR%" mkdir "%UBER_SIGNER_DIR%"
+if exist "%UBER_SIGNER_DIR%\uber-apk-signer.jar" (
+    echo  - uber-apk-signer is already installed: %UBER_SIGNER_DIR%
+) else (
+    echo  - Downloading latest uber-apk-signer jar...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "$ProgressPreference = 'SilentlyContinue';" ^
+        "try {" ^
+        "  $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/patrickfav/uber-apk-signer/releases/latest' -Headers @{'User-Agent'='PowerShell'};" ^
+        "  $jar = $rel.assets | Where-Object { $_.name -like 'uber-apk-signer-*.jar' } | Select-Object -First 1;" ^
+        "  if ($jar) { Write-Host '  Downloading:' $jar.name; Invoke-WebRequest -Uri $jar.browser_download_url -OutFile '%UBER_SIGNER_DIR%\uber-apk-signer.jar'; Write-Host '  uber-apk-signer downloaded successfully.'; }" ^
+        "} catch { Write-Host '  Failed to download uber-apk-signer. Check network or GitHub API limits.' }"
+)
+if exist "%UBER_SIGNER_DIR%\uber-apk-signer.jar" (
+    > "%UBER_SIGNER_DIR%\uber-apk-signer.bat" echo @echo off
+    >> "%UBER_SIGNER_DIR%\uber-apk-signer.bat" echo java -jar "%%~dp0uber-apk-signer.jar" %%*
+)
+echo.
+
+:: 6. Android Frida Gadget (arm64)
+echo [6/10] Setting up Frida Gadget (arm64)...
+set "FRIDA_GADGET_DIR=%TOOLS_DIR%\frida-gadget"
+if not exist "%FRIDA_GADGET_DIR%" mkdir "%FRIDA_GADGET_DIR%"
+if exist "%FRIDA_GADGET_DIR%\libfrida-gadget-arm64.so" (
+    echo  - Frida Gadget is already installed: %FRIDA_GADGET_DIR%
+) else (
+    echo  - Downloading Frida Gadget arm64...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "$ProgressPreference = 'SilentlyContinue';" ^
+        "try {" ^
+        "  $fver = (& python -c 'import frida; print(frida.__version__)' 2>$null);" ^
+        "  $uri = if ($fver) { 'https://api.github.com/repos/frida/frida/releases/tags/' + $fver.Trim() } else { 'https://api.github.com/repos/frida/frida/releases/latest' };" ^
+        "  $rel = Invoke-RestMethod -Uri $uri -Headers @{'User-Agent'='PowerShell'};" ^
+        "  $so = $rel.assets | Where-Object { $_.name -like 'frida-gadget-*-android-arm64.so.xz' } | Select-Object -First 1;" ^
+        "  if ($so) { Write-Host '  Downloading:' $so.name; $xz = '%FRIDA_GADGET_DIR%\frida-gadget.so.xz'; Invoke-WebRequest -Uri $so.browser_download_url -OutFile $xz; & python -c 'import lzma; open(r\"%FRIDA_GADGET_DIR%\libfrida-gadget-arm64.so\", \"wb\").write(lzma.open(r\"%FRIDA_GADGET_DIR%\frida-gadget.so.xz\").read())'; Remove-Item $xz -Force; Write-Host '  Frida Gadget extracted successfully.'; }" ^
+        "} catch { Write-Host '  Failed to download Frida Gadget. Check network or GitHub API limits.' }"
+)
+echo.
+
+:: 7. Unity IL2CPP metadata dumper (Il2CppDumper)
+echo [7/10] Setting up Unity IL2CPP dumper (Il2CppDumper)...
 set "IL2CPPDUMPER_DIR=%TOOLS_DIR%\il2cppdumper"
 if exist "%IL2CPPDUMPER_DIR%\Il2CppDumper.exe" (
     echo  - Il2CppDumper is already installed: %IL2CPPDUMPER_DIR%
@@ -98,8 +140,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "}"
 echo.
 
-:: 6. Unity IL2CPP alternative dumper (Cpp2IL, newer metadata versions)
-echo [6/8] Setting up Unity IL2CPP alternative dumper (Cpp2IL)...
+:: 8. Unity IL2CPP alternative dumper (Cpp2IL, newer metadata versions)
+echo [8/10] Setting up Unity IL2CPP alternative dumper (Cpp2IL)...
 set "CPP2IL_DIR=%TOOLS_DIR%\cpp2il"
 if exist "%CPP2IL_DIR%\Cpp2IL.exe" (
     echo  - Cpp2IL is already installed: %CPP2IL_DIR%
@@ -116,8 +158,8 @@ if exist "%CPP2IL_DIR%\Cpp2IL.exe" (
 )
 echo.
 
-:: 7. Ghidra native decompiler (needs JDK 21+; REA reads GHIDRA_INSTALL_DIR)
-echo [7/8] Setting up Ghidra (native decompiler, JDK 21+ required)...
+:: 9. Ghidra native decompiler (needs JDK 21+; REA reads GHIDRA_INSTALL_DIR)
+echo [9/10] Setting up Ghidra (native decompiler, JDK 21+ required)...
 set "JDK21="
 for /f "usebackq delims=" %%J in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$d = Get-ChildItem 'C:\Program Files\Eclipse Adoptium','C:\Program Files\Java','C:\Program Files\Microsoft' -Directory -Filter 'jdk-*' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^jdk-(\d+)' -and [int]$Matches[1] -ge 21 -and (Test-Path (Join-Path $_.FullName 'bin\javac.exe')) } | Sort-Object Name -Descending | Select-Object -First 1; if ($d) { $d.FullName }"`) do set "JDK21=%%J"
 if not defined JDK21 (
@@ -161,19 +203,19 @@ if defined GHIDRA_FOUND (
 :ghidra_done
 echo.
 
-:: 8. Python capstone for PE slice & IL2CPP ASM
-echo [8/8] Checking Python and capstone (for pe_slice and il2cpp_asm)...
+:: 10. Python capstone, frida, frida-tools
+echo [10/10] Checking Python, capstone, and Frida (for pe_slice, il2cpp_asm, and Frida dynamic hook)...
 where python > nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    python -c "import capstone" > nul 2>&1
+    python -c "import capstone, frida" > nul 2>&1
     if %ERRORLEVEL% equ 0 (
-        echo  - capstone is already installed for Python.
+        echo  - capstone and frida are already installed for Python.
     ) else (
-        echo  - Installing capstone via pip: pip install capstone
-        pip install capstone
+        echo  - Installing capstone, frida, and frida-tools via pip...
+        pip install capstone frida frida-tools
     )
 ) else (
-    echo  - Warning: Python 3 not found on PATH. Install Python 3 and pip install capstone for pe_slice.
+    echo  - Warning: Python 3 not found on PATH. Install Python 3 and pip install capstone frida frida-tools.
 )
 echo.
 
@@ -184,10 +226,13 @@ echo   - .NET / DLL / EXE : ilspycmd (global)
 echo   - APP (Electron)   : asar (global)
 echo   - APK Dex Decompile: %TOOLS_DIR%\jadx\bin\jadx.bat
 echo   - APK Resource     : %TOOLS_DIR%\apktool\apktool.bat
+echo   - APK Signer       : %TOOLS_DIR%\uber-apk-signer\uber-apk-signer.bat
+echo   - Frida Gadget     : %TOOLS_DIR%\frida-gadget\libfrida-gadget-arm64.so
 echo   - Unity IL2CPP     : %TOOLS_DIR%\il2cppdumper\Il2CppDumper.exe
 echo   - Unity IL2CPP alt : %TOOLS_DIR%\cpp2il\Cpp2IL.exe
 echo   - Native (Ghidra)  : !GHIDRA_INSTALL_DIR! ^(JDK 21+^)
 echo   - Slicing tools    : pe_slice.py / il2cpp_asm.py (capstone)
+echo   - Dynamic Hooking  : frida / frida-tools
 echo ===================================================================
 echo.
 pause

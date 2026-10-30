@@ -432,12 +432,12 @@ if (Has(ToolId.Il2CppDumper))
 }
 else Skip("B.실행", "Unity APP: IPA 압축 해제 경로", Missing(ToolId.Il2CppDumper));
 
-// B7. APK — JADX / Apktool (Java 필요). 가짜 APK라 디컴파일 자체는 실패가 정상이고, 인자 파싱만 확인
-if (Has(ToolId.Java, ToolId.Jadx, ToolId.Apktool))
+// B7. APK — JADX / Apktool / uber-apk-signer (Java 필요). 가짜 APK라 디컴파일 자체는 실패가 정상이고, 인자 파싱만 확인
+if (Has(ToolId.Java, ToolId.Jadx, ToolId.Apktool, ToolId.UberApkSigner))
 {
     var w = Path.Combine(work, "B7 apk");
     var prompt = Prompt(TargetKind.Apk, plainApk, w);
-    foreach (var (id, name) in new[] { (ToolId.Jadx, "jadx"), (ToolId.Apktool, "apktool") })
+    foreach (var (id, name) in new[] { (ToolId.Jadx, "jadx"), (ToolId.Apktool, "apktool"), (ToolId.UberApkSigner, "uber-apk-signer") })
     {
         var (c, o) = Run(Command(prompt, id, name)!, 180);
         var argsOk = !Regex.IsMatch(o, "unknown option|unrecognized option|usage:|is not recognized|JAVA_HOME|TIMEOUT", RegexOptions.IgnoreCase);
@@ -446,8 +446,8 @@ if (Has(ToolId.Java, ToolId.Jadx, ToolId.Apktool))
 }
 else
 {
-    Skip("B.실행", "APK: jadx -d / apktool d", tools[ToolId.Java].Found
-        ? Missing(ToolId.Jadx, ToolId.Apktool)
+    Skip("B.실행", "APK: jadx -d / apktool d / uber-apk-signer", tools[ToolId.Java].Found
+        ? Missing(ToolId.Jadx, ToolId.Apktool, ToolId.UberApkSigner)
         : "Java 미설치 — JDK 17+ 설치 후 JAVA_HOME 확인, 새 터미널에서 다시 실행");
 }
 Skip("B.실행", "APK/Unity APK: adb install · pm path · logcat", @"녹스·기기 연결이 필요해 자동 테스트하지 않음 (bat\check_android_emulator_env.bat로 확인)");
