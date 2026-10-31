@@ -51,6 +51,7 @@ dotnet run --project tests/PromptTests
 - 모든 타겟: 덤프·디컴파일처럼 오래 걸리는 명령은 로그를 남기며 백그라운드로 실행하라는 규칙이 있음
 - Unity Mono: 전체 디컴파일 동안 `ilspycmd -l c`(클래스 목록) · `ilspycmd -t <클래스>`(한 클래스만)로 바로 볼 수 있다는 안내
 - Unity APK · APP: "REA는 PE만 열 수 있어" 안내가 있고(다른 타겟엔 없어야 함), REA로 네이티브 라이브러리를 열라는 지시(`REA MCP 도구(open_binary…`, `REA inspect_macho로`, `REA로 UnityFramework`)가 없고, `il2cpp_asm`이 덤프 산출물(`dump.cs` · `script.json`)을 가리킴. APP은 `il2cpp_asm --check-encryption` 명령이 있음
+- APK · Unity APK: 원본과 서명이 다른 수정 APK를 덮어쓰지 말라는 경고(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`)와 `.mod` 복제 패키지 안내가 있음. Unity APK는 Play 자동 업데이트 해제 경고, Frida Gadget `script` 모드(`libfrida-gadget.config.so` · `mod.js` · `frida-il2cpp-bridge`), OBB 복사 안내가 모두 포함됨
 
 ---
 
@@ -216,9 +217,11 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 
 ````markdown
 ## 수행 지침
-0. APK 확보 (파일이 없을 때만)
-   - `bat\check_android_emulator_env.bat`로 CPU 가상화(VT)·녹스 설치/실행·ADB 연결을 먼저 확인해줘.
-   - 녹스에 직접 설치한 앱이라면 `adb shell pm list packages -3`로 패키지명을 찾고, `adb shell pm path <패키지명>`에 나온 base.apk와 split APK를 모두 `adb pull`로 'D:\ReaTest\Work Dirs\UnityApk-new\apk'에 가져와줘.
+0. APK 확보 및 버전 고정 확인 (파일이 없을 때만 추출)
+   - 먼저 `adb devices`로 기기 목록을 확인해줘. USB로 연결된 실제 스마트폰(실기기)이 있으면 가급적 그 기기를 우선 사용하고, 연결된 실기기가 없다면 `bat\check_android_emulator_env.bat`로 CPU 가상화(VT)·녹스 설치/실행·ADB 연결을 확인해줘.
+   - ⚠️ **ADB 단일 버전 유지**: 지정된 `adb`(`nox_adb` 등)와 다른 버전의 `adb`(PATH의 platform-tools, REA 내장 ADB 도구 등)를 섞어 쓰면 ADB 서버가 재시작되면서 연결이 끊기고 기기가 `offline`이 돼. 반드시 위에 지정된 `adb`만 쓰고 REA의 `install_adb_package` 등은 호출하지 마.
+   - ⚠️ **버전 고정 안내**: Play 스토어에서 이 게임의 **자동 업데이트를 반드시 꺼 두라고** 먼저 안내해줘. 앱이 업데이트되면 `libil2cpp.so`가 바뀌어 분석한 RVA가 전부 무효가 돼.
+   - 스마트폰(또는 녹스)에 직접 설치한 앱이라면 `adb shell pm list packages -3`로 패키지명을 찾고, `adb shell pm path <패키지명>`에 나온 base.apk와 split APK를 모두 `adb pull`로 'D:\ReaTest\Work Dirs\UnityApk-new\apk'에 가져와 원본 사본으로 보존해줘 (기기가 여러 대면 `-s <기기ID>` 지정, `/sdcard/Android/obb/<패키지명>`에 OBB 파일이 있는지도 함께 확인).
 1. 압축 해제
    `"C:\WINDOWS\system32\tar.exe" -xf "D:\ReaTest\Games With Space\unity game.apk" -C "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped"` (폴더를 먼저 만들 것. Windows 내장 bsdtar — Git Bash의 GNU tar는 zip을 풀지 못함)
 2. IL2CPP 덤프
@@ -226,10 +229,39 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
    - Il2CppDumper가 실패하면 Cpp2IL로 재시도해줘 (APK는 force 옵션 3개를 함께 지정, 버전은 f1 같은 접미사 없이 숫자만. 오류 시 Enter를 기다리니 입력을 닫고 실행 — bash `< /dev/null`, cmd `< NUL`):
      `Cpp2IL --game-path "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped" --force-binary-path "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped\lib\arm64-v8a\libil2cpp.so" --force-metadata-path "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped\assets\bin\Data\Managed\Metadata\global-metadata.dat" --force-unity-version "2022.3.10" --skip-analysis --disable-registration-prompts --output-root "D:\ReaTest\Work Dirs\UnityApk-new\cpp2il_out"`
    `ilspycmd -p -o "D:\ReaTest\Work Dirs\UnityApk-new\src_dummy" "D:\ReaTest\Work Dirs\UnityApk-new\il2cpp_dump\DummyDll\Assembly-CSharp.dll"`
+   - libil2cpp.so는 ARM64 ELF라 REA로 열 수 없어. 관심 클래스의 함수 본문은 주석 달린 어셈블리로 봐줘 (몇 초면 끝나):
+     `il2cpp_asm --binary "D:\ReaTest\Work Dirs\UnityApk-new\apk_unzipped\lib\arm64-v8a\libil2cpp.so" --dump "D:\ReaTest\Work Dirs\UnityApk-new\il2cpp_dump\dump.cs" --script-json "D:\ReaTest\Work Dirs\UnityApk-new\il2cpp_dump\script.json" --class <클래스명> --out "D:\ReaTest\Work Dirs\UnityApk-new\logs\<클래스명>.asm"`
+   - 네임스페이스가 있는 클래스는 `네임스페이스.클래스명` 전체 이름을 주고, 메서드가 많아(80개 초과) 거절되거나 하나만 볼 땐 `--class` 대신 `--method "<클래스명>::<메서드명>"`을 여러 번 써줘. 후킹 후보(메서드명, RVA, 역할)는 'D:\ReaTest\Work Dirs\UnityApk-new\docs\hooks.md'에 표로 정리해줘.
 3. Java/네이티브 브리지 확인
    `jadx -d "D:\ReaTest\Work Dirs\UnityApk-new\jadx_src" "D:\ReaTest\Games With Space\unity game.apk"`
-   - UnityPlayerActivity 확장 여부, 네이티브 플러그인/SDK 브리지를 확인해 'D:\ReaTest\Work Dirs\UnityApk-new\docs\analysis.md'에 정리해줘.
-4. 녹스 실행 검증
-   - `adb connect 127.0.0.1:62001` (녹스 기본 포트, 다중 인스턴스는 62025부터) 후
-     `adb install -r "D:\ReaTest\Games With Space\unity game.apk"` (분할 패키지는 `install-multiple`) → `adb logcat -s Unity`로 런타임 로그를 확인해줘.
+   - AndroidManifest.xml의 패키지명, `versionCode`, UnityPlayerActivity 확장 여부, ContentProvider(`android:authorities`), 네이티브 플러그인/SDK 브리지를 확인해 'D:\ReaTest\Work Dirs\UnityApk-new\docs\analysis.md'에 정리해줘.
+4. 원본 실행 검증 (USB 연결 스마트폰 우선, 없으면 녹스 에뮬레이터)
+   - `adb devices`로 확인하여 USB 연결된 실제 안드로이드 스마트폰이 있으면 해당 실기기를 우선 사용해줘.
+   - 실기기가 연결되어 있지 않은 경우에만 녹스 에뮬레이터 포트(`adb connect 127.0.0.1:62001`, 다중 인스턴스는 62025부터)로 연결해줘.
+   - 기기에 아직 설치되어 있지 않을 때만 `adb install -r "D:\ReaTest\Games With Space\unity game.apk"` (분할 패키지는 `install-multiple`)로 설치하고, 이미 Play 스토어 등에서 같은 버전이 깔려 있으면 덮어쓰지 마 (설치 출처만 바뀜). `adb logcat -s Unity`로 원본 런타임 로그를 확인해줘 (기기가 여러 대면 `-s <기기ID>` 지정).
+   - ⚠️ **원본 패키지 위에 수정 APK를 `install -r`로 덮어쓰지 마**: 재서명한 APK는 원본과 서명이 달라 설치가 거부(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`)되며, 원본을 지우고 깔면 로컬 세이브 데이터와 Google 로그인이 날아가. 모드는 반드시 아래 5단계의 **`.mod` 복제 앱**으로 만들어 원본 옆에 나란히 설치해줘.
+5. Frida Gadget 복제 앱(`.mod`) + `script` 모드 제작 및 배포
+   - Android IL2CPP에서는 PC용 C# 모드 로더(MelonLoader·LemonLoader 등)가 동작하지 않는 경우가 많으므로, 루팅 없이도 PC 연결 없이 기기 단독으로 상시 동작하는 **Frida Gadget 복제 패키지(`<패키지명>.mod`) + `frida-il2cpp-bridge` 스크립트(`mod.js`)** 방식으로 모드를 제작해줘 (루팅 기기에서는 `frida-server`도 쓸 수 있지만, 세션 종료 시 훅이 풀리지 않게 하려면 Gadget `script` 모드가 표준이야):
+   - **5-1. 복제 APK 디코드 및 매니페스트 `.mod` 분리 (원본 공존 · 세이브 보호)**
+     `apktool d -f -o "D:\ReaTest\Work Dirs\UnityApk-new\build\clone\decoded" "D:\ReaTest\Games With Space\unity game.apk"`
+     - `D:\ReaTest\Work Dirs\UnityApk-new\build\clone\decoded\AndroidManifest.xml`에서 `package` 속성, 모든 `android:authorities`, `android:taskAffinity`, 자체 정의 `.permission.` 이름, 푸시/SDK 스킴 host만 `<패키지명>.mod` 기준으로 바꿔 정품 앱과 ContentProvider·권한 충돌 없이 나란히 설치되게 해줘 (**주의: 액티비티/서비스 클래스명과 인텐트 액션 이름은 절대 바꾸지 마**).
+   - **5-2. Frida Gadget 및 `script` 모드 설정 주입**
+     - 진입점 액티비티 Smali(예: `UnityPlayerActivity.smali`)의 `onCreate` 맨 앞(annotation 직후)에 `System.loadLibrary("frida-gadget")` 호출을 삽입해줘.
+     - `tools\frida-gadget\libfrida-gadget-arm64.so`를 `D:\ReaTest\Work Dirs\UnityApk-new\build\clone\decoded\lib\arm64-v8a\libfrida-gadget.so`로 복사하고, 같은 폴더에 설정 파일 `libfrida-gadget.config.so`를 아래 JSON으로 작성해줘 (실행할 때마다 `mod.js`를 자동 로드하고, 파일을 다시 push하면 즉시 리로드됨):
+       `{"interaction":{"type":"script","path":"/storage/emulated/0/Android/data/<패키지명>.mod/files/mod.js","on_change":"reload"}}`
+       (초기 탐색에서 PC 원격 콘솔 attach가 필요할 때만 일시적으로 `"type":"listen","address":"127.0.0.1","port":27042,"on_load":"wait"`를 쓰고 `adb forward tcp:27042 tcp:27042`로 붙어 확인해줘. 단, 앱이 백그라운드로 가면 세션이 끊기므로 본 모드는 `script` 모드로 전환할 것.)
+   - **5-3. 리패키징 · 고정 키 서명 · 복제본 설치 · OBB 복사**
+     `apktool b "D:\ReaTest\Work Dirs\UnityApk-new\build\clone\decoded" -o "D:\ReaTest\Work Dirs\UnityApk-new\build\clone\out\rebuilt.unsigned.apk"`
+     `uber-apk-signer --apks "D:\ReaTest\Work Dirs\UnityApk-new\build\clone\out\rebuilt.unsigned.apk" -o "D:\ReaTest\Work Dirs\UnityApk-new\build\clone\out"`
+     - 항상 같은 키(uber-apk-signer 기본 디버그 키 또는 `D:\ReaTest\Work Dirs\UnityApk-new\build\clone\modtest.keystore`)로 서명해야 이후 재빌드 시 세이브를 유지한 채 `adb install -r "D:\ReaTest\Work Dirs\UnityApk-new\build\clone\out\rebuilt-aligned-debugSigned.apk"`로 덮어쓸 수 있어.
+     - **OBB 복사 (필수 확인)**: 원본 게임이 `/sdcard/Android/obb/<패키지명>/main.<versionCode>.<패키지명>.obb`를 사용한다면, 기기 안에서 복제 앱 경로로 복사해줘 (PC로 왕복 전송하지 말고 기기 내부에서 복사):
+       `adb shell "mkdir -p /sdcard/Android/obb/<패키지명>.mod && cp /sdcard/Android/obb/<패키지명>/main.<versionCode>.<패키지명>.obb /sdcard/Android/obb/<패키지명>.mod/main.<versionCode>.<패키지명>.mod.obb"`
+   - **5-4. `mod.js` 프로젝트 작성 및 실기 배포 (`D:\ReaTest\Work Dirs\UnityApk-new\mod`)**
+     - 'D:\ReaTest\Work Dirs\UnityApk-new\mod'에 `frida-compile` + `frida-il2cpp-bridge` 기반 TypeScript(또는 JS) 프로젝트를 구성해 `mod.js`로 번들링하고 기기에 배포해줘:
+       `adb push "D:\ReaTest\Work Dirs\UnityApk-new\mod\dist\mod.js" /sdcard/Android/data/<패키지명>.mod/files/mod.js`
+     - 커스텀 에셋 폴더를 넣을 때도 기기 내부 `cp -r`(권한 `2770` 문제로 앱에서 읽기 실패 가능) 대신 PC에서 `adb push`로 넣어줘.
+     - **스크립트 작성 시 실기 주의사항**:
+       1. `Process.attachModuleObserver`는 Android 링커(`linker_phdr.cpp`) SIGABRT 크래시를 유발할 수 있으므로 쓰지 말고, `setInterval`(5ms)로 `Process.findModuleByName("libil2cpp.so")`를 폴링해 대기할 것.
+       2. 원본을 호출한 뒤 반환값만 바꾸는 `Interceptor.attach` 훅에서 원본이 C# 예외(`Il2CppExceptionWrapper`)를 던지면 Frida 프레임을 넘지 못해 프로세스가 즉시 abort되므로, 예외 가능성이 있는 경로는 원본을 부르지 않는 `Interceptor.replace`를 쓸 것.
+       3. `script` 모드에서는 `console.log`가 `logcat`에 나오지 않으므로, `adb shell "mkdir -p /sdcard/Android/data/<패키지명>.mod/files && touch /sdcard/Android/data/<패키지명>.mod/files/mod.log && chmod 666 /sdcard/Android/data/<패키지명>.mod/files/mod.log"`로 로그 파일을 미리 만들어 두고(앱이 직접 생성하면 권한 `0600`이라 `adb shell`에서 못 읽음) 파일에 이어 쓰는 로거로 동작을 확인할 것 (`/proc/self/cmdline`에서 패키지명을 동적으로 읽을 때는 끝의 NUL 바이트 때문에 `File.readAllText`가 예외를 던지니 `File.readAllBytes` 사용).
 ````
