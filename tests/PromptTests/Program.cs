@@ -258,6 +258,14 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
         Need(!Regex.IsMatch(stepsPart, "Il2CppDumper \"<앱>"), ".app 경로 자리표시자 남음");
     if (profile.Kind == TargetKind.UnityApk && d.UnityVersion != null)
         Need(stepsPart.Contains($"--force-unity-version \"{Regex.Match(d.UnityVersion, @"^\d+\.\d+\.\d+").Value}\""), "Cpp2IL에 숫자 형식 Unity 버전 전달");
+    if (profile.Kind is TargetKind.Apk or TargetKind.UnityApk)
+        Need(stepsPart.Contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") && stepsPart.Contains(".mod"), "APK/Unity APK: 서명 불일치 install -r 경고 및 .mod 복제 패키지 안내");
+    if (profile.Kind == TargetKind.UnityApk)
+    {
+        Need(stepsPart.Contains("자동 업데이트를 반드시 꺼 두라고"), "Unity APK: Play 자동 업데이트 해제 경고");
+        Need(stepsPart.Contains("libfrida-gadget.config.so") && stepsPart.Contains("mod.js") && stepsPart.Contains("frida-il2cpp-bridge"), "Unity APK: Frida Gadget script 모드 및 mod.js 안내");
+        Need(stepsPart.Contains("OBB 복사"), "Unity APK: OBB 복사 안내");
+    }
     return errs;
 }
 

@@ -58,7 +58,7 @@ public static class TargetCatalog
             [ToolId.Ilspy, ToolId.DotnetSdk]),
         new(TargetKind.UnityApk, "Unity APK", "📲", "Unity APK (녹스 · ADB)", "-unity-android",
             [".apk", ".xapk", ".apks", ".aab"], true,
-            [ToolId.Il2CppDumper, ToolId.Cpp2Il, ToolId.Ilspy, ToolId.Jadx, ToolId.Adb, ToolId.Il2CppAsm]),
+            [ToolId.Java, ToolId.Il2CppDumper, ToolId.Cpp2Il, ToolId.Ilspy, ToolId.Jadx, ToolId.Apktool, ToolId.Adb, ToolId.Il2CppAsm, ToolId.UberApkSigner]),
         // Windows REA는 Mach-O를 열지 못하고 inspect_macho도 macOS 전용이라, 암호화 확인과 로직 분석은 il2cpp_asm으로
         new(TargetKind.UnityApp, "Unity APP", "🍎", "Unity APP (iOS IPA · macOS)", "-unity-app",
             [".ipa", ".app", ".zip"], true,
