@@ -18,11 +18,15 @@ public sealed record PromptContext(
 
 /// <summary>
 /// 공통 머리말(대상 정보) + 작업 폴더 상태(새로 시작/이어서) + 도구 경로 + 타겟별 단계 + 공통 규칙으로 프롬프트를 조립합니다.
-/// Unity 프리셋도 별도 가드레일 섹션 없이 같은 공통 규칙만 받습니다.
+/// Unity 프리셋은 별도 가드레일 섹션 없이 공통 규칙에 개인 사용 안내 한 줄만 더 받습니다 (작업을 멈추는 조건이 아닌 사용자 안내).
 /// </summary>
 public static class PromptBuilder
 {
     private const string TargetPlaceholder = "[분석 대상 파일 경로를 입력하거나 선택하세요]";
+
+    /// <summary>복제 APK를 만드는 단계의 사용자 안내. 에이전트가 시작 전에 멈추지 않도록 멈춤 조건이 아님을 함께 적습니다.</summary>
+    private const string PersonalDeviceNotice =
+        "⚠️ **개인 기기 전용 안내**: 이 단계를 시작할 때와 최종 보고에서 나에게 알려줘. 복제 APK에는 원본 앱·게임 전체가 들어 있으니 내 기기·내 에뮬레이터에서만 쓰고, 다른 사람에게 주거나 인터넷에 올리면 안 돼. 이 안내 때문에 작업을 멈추거나 확인을 요구하지는 마.";
 
     public static string Build(PromptContext ctx)
     {
@@ -167,6 +171,8 @@ public static class PromptBuilder
                       "내가 다시 하라고 하면 타임아웃을 이유로 거절하지 말고 이렇게 나눠서 다시 해줘.");
         sb.AppendLine($"- 덤프 · 디컴파일 · 압축 해제(Il2CppDumper, Cpp2IL, `ilspycmd -p`, jadx, apktool 등)는 큰 게임에서 몇 분 걸릴 수 있어. " +
                       $"셸 도구 시간 제한에 걸리지 않게 출력을 '{w}\\logs\\' 아래 로그 파일로 남기면서 백그라운드로 실행하고, 끝났는지는 로그 마지막 줄과 산출물로 확인해줘.");
+        if (IsUnityGame(ctx))
+            sb.AppendLine("- 디컴파일 코드·덤프·추출 리소스는 내 PC에서만 쓰고 공유하지 않을 거야. 최종 보고 끝에 이 점을 한 줄로 다시 알려줘.");
         sb.AppendLine();
         sb.AppendLine("## 최종 보고");
         sb.AppendLine("1. 이번에 완료한 단계  2. 산출물 경로  3. 핵심 발견 (진입점, 후킹 후보 등)  4. 다음 세션에서 이어서 할 일");
@@ -239,6 +245,7 @@ public static class PromptBuilder
                - 실제 스마트폰이 연결되어 있다면 가급적 그 실기기를 우선 사용하고, 연결된 기기가 없다면 `bat\check_android_emulator_env.bat`로 VT·녹스·ADB 상태를 확인하고 녹스 에뮬레이터로 진행해줘.
                - 기기에 아직 앱이 없을 때만 `{adb} install -r "{t}"`로 설치하고(이미 Play 스토어 등에서 같은 버전이 깔려 있으면 덮어쓰지 마), `{adb} shell monkey -p <패키지명> 1` → `{adb} logcat`으로 동작을 확인해줘 (연결된 기기가 여러 대면 `-s <기기ID>` 지정).
             4. 리패키징 및 Frida Gadget 복제 앱 후킹 (선택)
+               - {PersonalDeviceNotice}
                - ⚠️ **서명이 달라진 수정 APK를 원본 패키지명 그대로 `install -r`하지 마**: 원본과 서명이 다르면 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`로 실패하며, 원본을 지우고 깔면 로컬 데이터(세이브)와 Google 로그인이 날아가. 원본과 나란히 설치할 수 있도록 `AndroidManifest.xml`의 `package`, 모든 `android:authorities`, `android:taskAffinity`, 자체 정의 `.permission.` 이름을 `<패키지명>.mod`로 바꾼 **복제 패키지**로 만들어줘 (액티비티/서비스 클래스명과 인텐트 액션 이름은 바꾸지 마).
                - Smali 코드나 네이티브 라이브러리를 수정한 뒤 APK를 다시 패키징할 때는 apktool로 빌드하고 uber-apk-signer로 정렬/서명해줘:
                  `{apktool} b "{w}\apktool_out" -o "{w}\dist\rebuilt.unsigned.apk"`
@@ -383,7 +390,8 @@ public static class PromptBuilder
                - 실기기가 연결되어 있지 않은 경우에만 녹스 에뮬레이터 포트(`{adb} connect 127.0.0.1:62001`, 다중 인스턴스는 62025부터)로 연결해줘.
                - 기기에 아직 설치되어 있지 않을 때만 `{adb} install -r "{t}"` (분할 패키지는 `install-multiple`)로 설치하고, 이미 Play 스토어 등에서 같은 버전이 깔려 있으면 덮어쓰지 마 (설치 출처만 바뀜). `{adb} logcat -s Unity`로 원본 런타임 로그를 확인해줘 (기기가 여러 대면 `-s <기기ID>` 지정).
                - ⚠️ **원본 패키지 위에 수정 APK를 `install -r`로 덮어쓰지 마**: 재서명한 APK는 원본과 서명이 달라 설치가 거부(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`)되며, 원본을 지우고 깔면 로컬 세이브 데이터와 Google 로그인이 날아가. 모드는 반드시 아래 5단계의 **`.mod` 복제 앱**으로 만들어 원본 옆에 나란히 설치해줘.
-            5. Frida Gadget 복제 앱(`.mod`) + `script` 모드 제작 및 배포
+            5. Frida Gadget 복제 앱(`.mod`) + `script` 모드 제작 및 기기 설치
+               - {PersonalDeviceNotice}
                - Android IL2CPP에서는 PC용 C# 모드 로더(MelonLoader·LemonLoader 등)가 동작하지 않는 경우가 많으므로, 루팅 없이도 PC 연결 없이 기기 단독으로 상시 동작하는 **Frida Gadget 복제 패키지(`<패키지명>.mod`) + `frida-il2cpp-bridge` 스크립트(`mod.js`)** 방식으로 모드를 제작해줘 (루팅 기기에서는 `frida-server`도 쓸 수 있지만, 세션 종료 시 훅이 풀리지 않게 하려면 Gadget `script` 모드가 표준이야):
                - **5-1. 복제 APK 디코드 및 매니페스트 `.mod` 분리 (원본 공존 · 세이브 보호)**
                  `{apktool} d -f -o "{w}\build\clone\decoded" "{t}"`
@@ -399,8 +407,8 @@ public static class PromptBuilder
                  - 항상 같은 키(uber-apk-signer 기본 디버그 키 또는 `{w}\build\clone\modtest.keystore`)로 서명해야 이후 재빌드 시 세이브를 유지한 채 `{adb} install -r "{w}\build\clone\out\rebuilt-aligned-debugSigned.apk"`로 덮어쓸 수 있어.
                  - **OBB 복사 (필수 확인)**: 원본 게임이 `/sdcard/Android/obb/<패키지명>/main.<versionCode>.<패키지명>.obb`를 사용한다면, 기기 안에서 복제 앱 경로로 복사해줘 (PC로 왕복 전송하지 말고 기기 내부에서 복사):
                    `{adb} shell "mkdir -p /sdcard/Android/obb/<패키지명>.mod && cp /sdcard/Android/obb/<패키지명>/main.<versionCode>.<패키지명>.obb /sdcard/Android/obb/<패키지명>.mod/main.<versionCode>.<패키지명>.mod.obb"`
-               - **5-4. `mod.js` 프로젝트 작성 및 실기 배포 (`{w}\mod`)**
-                 - '{w}\mod'에 `frida-compile` + `frida-il2cpp-bridge` 기반 TypeScript(또는 JS) 프로젝트를 구성해 `mod.js`로 번들링하고 기기에 배포해줘:
+               - **5-4. `mod.js` 프로젝트 작성 및 기기 전송 (`{w}\mod`)**
+                 - '{w}\mod'에 `frida-compile` + `frida-il2cpp-bridge` 기반 TypeScript(또는 JS) 프로젝트를 구성해 `mod.js`로 번들링하고 기기로 전송해줘:
                    `{adb} push "{w}\mod\dist\mod.js" /sdcard/Android/data/<패키지명>.mod/files/mod.js`
                  - 커스텀 에셋 폴더를 넣을 때도 기기 내부 `cp -r`(권한 `2770` 문제로 앱에서 읽기 실패 가능) 대신 PC에서 `{adb} push`로 넣어줘.
                  - **스크립트 작성 시 실기 주의사항**:
@@ -479,6 +487,10 @@ public static class PromptBuilder
 
     /// <summary>네이티브 코드가 ELF(libil2cpp.so) · Mach-O(UnityFramework)라 Windows REA로 열 수 없는 타겟인지</summary>
     private static bool NativeIsNotPe(PromptContext ctx) => ctx.Profile.Kind is TargetKind.UnityApk or TargetKind.UnityApp;
+
+    /// <summary>Unity 게임 프리셋(IL2CPP · Mono · APK · APP)인지</summary>
+    private static bool IsUnityGame(PromptContext ctx) =>
+        ctx.Profile.Kind is TargetKind.UnityIl2Cpp or TargetKind.UnityMono or TargetKind.UnityApk or TargetKind.UnityApp;
 
     /// <summary>현재 대상 파일에 대한 판별 결과만 사용 (다른 파일의 오래된 결과는 무시)</summary>
     private static DetectionResult? Matching(PromptContext ctx) =>

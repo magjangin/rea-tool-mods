@@ -15,15 +15,15 @@ dotnet run --project tests/PromptTests
 
 ---
 
-## 결과 요약 (2026-10-18, 가드레일 · 공통 범위 · 복호화 멈춤 규칙 제거 후 재실행)
+## 결과 요약 (2026-11-10, 개인 사용 안내 추가 후 재실행)
 
 | 영역 | 내용 | 결과 |
 |---|---|---|
 | A. 판별 | 8종 픽스처 + 앱 실행 별칭이 올바른 타겟으로 판별되는지 | ✅ 8 / 8 + 별칭 1 |
 | A. 생성 | 8종 타겟 × 5가지 작업 폴더 상태 = 40개 프롬프트 검증 | ✅ 40 / 40 |
-| B. 실행 | 프롬프트의 명령을 그대로 실행 | ✅ 16 통과 · ⏭️ 1 건너뜀 |
+| B. 실행 | 프롬프트의 명령을 그대로 실행 | ✅ 17 통과 · ⏭️ 1 건너뜀 |
 | C. ViewModel | 앱 흐름 (판별 → 폴더 → 경고 → 이어하기 → 재사용) | ✅ 12 통과 · ⏭️ 1 건너뜀 |
-| **합계** | | **77 통과 · 0 실패 · 2 건너뜀** |
+| **합계** | | **78 통과 · 0 실패 · 2 건너뜀** |
 
 ---
 
@@ -51,6 +51,7 @@ dotnet run --project tests/PromptTests
 - 모든 타겟: 덤프·디컴파일처럼 오래 걸리는 명령은 로그를 남기며 백그라운드로 실행하라는 규칙이 있음
 - Unity Mono: 전체 디컴파일 동안 `ilspycmd -l c`(클래스 목록) · `ilspycmd -t <클래스>`(한 클래스만)로 바로 볼 수 있다는 안내
 - Unity APK · APP: "REA는 PE만 열 수 있어" 안내가 있고(다른 타겟엔 없어야 함), REA로 네이티브 라이브러리를 열라는 지시(`REA MCP 도구(open_binary…`, `REA inspect_macho로`, `REA로 UnityFramework`)가 없고, `il2cpp_asm`이 덤프 산출물(`dump.cs` · `script.json`)을 가리킴. APP은 `il2cpp_asm --check-encryption` 명령이 있음
+- 개인 사용 안내: APK · Unity APK의 복제 APK 단계에 "개인 기기 전용 안내"와 작업을 멈추지 말라는 문구가 있고(다른 타겟엔 없어야 함), Unity 프리셋 4종의 공통 규칙에 공유 금지 안내가 있음(다른 타겟엔 없어야 함). 기기 전송을 "배포"로 표현하지 않음
 - APK · Unity APK: 원본과 서명이 다른 수정 APK를 덮어쓰지 말라는 경고(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`)와 `.mod` 복제 패키지 안내가 있음. Unity APK는 Play 자동 업데이트 해제 경고, Frida Gadget `script` 모드(`libfrida-gadget.config.so` · `mod.js` · `frida-il2cpp-bridge`), OBB 복사 안내가 모두 포함됨
 
 ---
@@ -208,6 +209,7 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 - 도구가 없거나 같은 오류가 2번 이상 반복되면 우회책을 계속 시도하지 말고 원인과 필요한 조치를 정리한 뒤 멈춰줘.
 - 단, **타임아웃은 위 규칙에 넣지 마.** 도구가 고장 난 게 아니라 한 번에 맡긴 일이 너무 크다는 뜻이야. 같은 호출을 그대로 반복하지 말고 더 작게 나눠서 바로 이어가줘 (큰 PE는 `pe_slice`로 함수 단위 조각을 만들어 REA로 열고, 오래 걸리는 명령은 백그라운드로 돌리고 로그로 확인). 내가 다시 하라고 하면 타임아웃을 이유로 거절하지 말고 이렇게 나눠서 다시 해줘.
 - 덤프 · 디컴파일 · 압축 해제(Il2CppDumper, Cpp2IL, `ilspycmd -p`, jadx, apktool 등)는 큰 게임에서 몇 분 걸릴 수 있어. 셸 도구 시간 제한에 걸리지 않게 출력을 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\logs\' 아래 로그 파일로 남기면서 백그라운드로 실행하고, 끝났는지는 로그 마지막 줄과 산출물로 확인해줘.
+- 디컴파일 코드·덤프·추출 리소스는 내 PC에서만 쓰고 공유하지 않을 거야. 최종 보고 끝에 이 점을 한 줄로 다시 알려줘.
 
 ## 최종 보고
 1. 이번에 완료한 단계  2. 산출물 경로  3. 핵심 발견 (진입점, 후킹 후보 등)  4. 다음 세션에서 이어서 할 일
@@ -240,7 +242,8 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
    - 실기기가 연결되어 있지 않은 경우에만 녹스 에뮬레이터 포트(`adb connect 127.0.0.1:62001`, 다중 인스턴스는 62025부터)로 연결해줘.
    - 기기에 아직 설치되어 있지 않을 때만 `adb install -r "D:\ReaTest\Games With Space\unity game.apk"` (분할 패키지는 `install-multiple`)로 설치하고, 이미 Play 스토어 등에서 같은 버전이 깔려 있으면 덮어쓰지 마 (설치 출처만 바뀜). `adb logcat -s Unity`로 원본 런타임 로그를 확인해줘 (기기가 여러 대면 `-s <기기ID>` 지정).
    - ⚠️ **원본 패키지 위에 수정 APK를 `install -r`로 덮어쓰지 마**: 재서명한 APK는 원본과 서명이 달라 설치가 거부(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`)되며, 원본을 지우고 깔면 로컬 세이브 데이터와 Google 로그인이 날아가. 모드는 반드시 아래 5단계의 **`.mod` 복제 앱**으로 만들어 원본 옆에 나란히 설치해줘.
-5. Frida Gadget 복제 앱(`.mod`) + `script` 모드 제작 및 배포
+5. Frida Gadget 복제 앱(`.mod`) + `script` 모드 제작 및 기기 설치
+   - ⚠️ **개인 기기 전용 안내**: 이 단계를 시작할 때와 최종 보고에서 나에게 알려줘. 복제 APK에는 원본 앱·게임 전체가 들어 있으니 내 기기·내 에뮬레이터에서만 쓰고, 다른 사람에게 주거나 인터넷에 올리면 안 돼. 이 안내 때문에 작업을 멈추거나 확인을 요구하지는 마.
    - Android IL2CPP에서는 PC용 C# 모드 로더(MelonLoader·LemonLoader 등)가 동작하지 않는 경우가 많으므로, 루팅 없이도 PC 연결 없이 기기 단독으로 상시 동작하는 **Frida Gadget 복제 패키지(`<패키지명>.mod`) + `frida-il2cpp-bridge` 스크립트(`mod.js`)** 방식으로 모드를 제작해줘 (루팅 기기에서는 `frida-server`도 쓸 수 있지만, 세션 종료 시 훅이 풀리지 않게 하려면 Gadget `script` 모드가 표준이야):
    - **5-1. 복제 APK 디코드 및 매니페스트 `.mod` 분리 (원본 공존 · 세이브 보호)**
      `apktool d -f -o "D:\ReaTest\Work Dirs\UnityApk-new\build\clone\decoded" "D:\ReaTest\Games With Space\unity game.apk"`
@@ -256,8 +259,8 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
      - 항상 같은 키(uber-apk-signer 기본 디버그 키 또는 `D:\ReaTest\Work Dirs\UnityApk-new\build\clone\modtest.keystore`)로 서명해야 이후 재빌드 시 세이브를 유지한 채 `adb install -r "D:\ReaTest\Work Dirs\UnityApk-new\build\clone\out\rebuilt-aligned-debugSigned.apk"`로 덮어쓸 수 있어.
      - **OBB 복사 (필수 확인)**: 원본 게임이 `/sdcard/Android/obb/<패키지명>/main.<versionCode>.<패키지명>.obb`를 사용한다면, 기기 안에서 복제 앱 경로로 복사해줘 (PC로 왕복 전송하지 말고 기기 내부에서 복사):
        `adb shell "mkdir -p /sdcard/Android/obb/<패키지명>.mod && cp /sdcard/Android/obb/<패키지명>/main.<versionCode>.<패키지명>.obb /sdcard/Android/obb/<패키지명>.mod/main.<versionCode>.<패키지명>.mod.obb"`
-   - **5-4. `mod.js` 프로젝트 작성 및 실기 배포 (`D:\ReaTest\Work Dirs\UnityApk-new\mod`)**
-     - 'D:\ReaTest\Work Dirs\UnityApk-new\mod'에 `frida-compile` + `frida-il2cpp-bridge` 기반 TypeScript(또는 JS) 프로젝트를 구성해 `mod.js`로 번들링하고 기기에 배포해줘:
+   - **5-4. `mod.js` 프로젝트 작성 및 기기 전송 (`D:\ReaTest\Work Dirs\UnityApk-new\mod`)**
+     - 'D:\ReaTest\Work Dirs\UnityApk-new\mod'에 `frida-compile` + `frida-il2cpp-bridge` 기반 TypeScript(또는 JS) 프로젝트를 구성해 `mod.js`로 번들링하고 기기로 전송해줘:
        `adb push "D:\ReaTest\Work Dirs\UnityApk-new\mod\dist\mod.js" /sdcard/Android/data/<패키지명>.mod/files/mod.js`
      - 커스텀 에셋 폴더를 넣을 때도 기기 내부 `cp -r`(권한 `2770` 문제로 앱에서 읽기 실패 가능) 대신 PC에서 `adb push`로 넣어줘.
      - **스크립트 작성 시 실기 주의사항**:
