@@ -260,6 +260,14 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
         Need(stepsPart.Contains($"--force-unity-version \"{Regex.Match(d.UnityVersion, @"^\d+\.\d+\.\d+").Value}\""), "Cpp2IL에 숫자 형식 Unity 버전 전달");
     if (profile.Kind is TargetKind.Apk or TargetKind.UnityApk)
         Need(stepsPart.Contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") && stepsPart.Contains(".mod"), "APK/Unity APK: 서명 불일치 install -r 경고 및 .mod 복제 패키지 안내");
+    // 개인 사용 안내: 복제 APK를 만드는 타겟과 Unity 게임에만, 작업을 멈추는 조건이 아닌 안내로
+    var makesCloneApk = profile.Kind is TargetKind.Apk or TargetKind.UnityApk;
+    Need(makesCloneApk == stepsPart.Contains("**개인 기기 전용 안내**"), makesCloneApk ? "복제 APK 개인 기기 전용 안내 없음" : "복제 APK 안내가 다른 타겟에 노출");
+    if (makesCloneApk)
+        Need(stepsPart.Contains("이 안내 때문에 작업을 멈추거나 확인을 요구하지는 마"), "개인 기기 안내가 멈춤 조건이 아니라는 문구 없음");
+    var unityGame = profile.Kind is TargetKind.UnityIl2Cpp or TargetKind.UnityMono or TargetKind.UnityApk or TargetKind.UnityApp;
+    Need(unityGame == p.Contains("내 PC에서만 쓰고 공유하지 않을 거야"), unityGame ? "Unity 개인 사용 안내 없음" : "Unity 개인 사용 안내가 다른 타겟에 노출");
+    Need(!stepsPart.Contains("실기 배포") && !stepsPart.Contains("기기에 배포"), "기기 전송을 '배포'로 표현 (배포 금지 안내와 혼동)");
     if (profile.Kind == TargetKind.UnityApk)
     {
         Need(stepsPart.Contains("자동 업데이트를 반드시 꺼 두라고"), "Unity APK: Play 자동 업데이트 해제 경고");
