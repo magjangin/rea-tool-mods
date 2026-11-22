@@ -15,7 +15,7 @@ dotnet run --project tests/PromptTests
 
 ---
 
-## 결과 요약 (2026-11-10, 개인 사용 안내 추가 후 재실행)
+## 결과 요약 (2026-11-22, 아카이빙·보존·오프라인 모드 지침 추가 후 재실행)
 
 | 영역 | 내용 | 결과 |
 |---|---|---|
@@ -40,7 +40,7 @@ dotnet run --project tests/PromptTests
 | `differs` | resume + 기록된 대상 경로가 다른 파일 | "분석용으로 만들어졌습니다" (진행 전 확인 요청) |
 
 모든 프롬프트에 공통으로 검사한 것:
-- 머리말 `# [타겟명]`, 대상 파일 · 작업 디렉터리 경로, 필수 섹션 5개
+- 머리말 `# [타겟명]`, 대상 파일 · 작업 디렉터리 경로, 필수 섹션 6개 (`0. 작업 폴더 상태`, `사용할 도구`, `수행 지침`, `아카이빙 · 보존 · 오프라인 모드 지침`, `공통 규칙`, `최종 보고`)
 - 어떤 타겟에도 `## 시작 전 확인 (Unity 게임 가드레일)` 섹션, 공통 범위 규칙(로컬·싱글플레이...), 복호화 멈춤 지시, 안티치트/DRM/크랙/서버 검증 문구가 없음
 - 치환되지 않은 `{변수}`나 객체 이름(`ReaToolMods.…`)이 노출되지 않음
 - 타겟의 필요 도구가 "사용할 도구"에 모두 나오고, **단계에서 쓰는 도구는 반드시 필요 도구 목록에 있음** (경로 안내 누락 방지)
@@ -53,6 +53,7 @@ dotnet run --project tests/PromptTests
 - Unity APK · APP: "REA는 PE만 열 수 있어" 안내가 있고(다른 타겟엔 없어야 함), REA로 네이티브 라이브러리를 열라는 지시(`REA MCP 도구(open_binary…`, `REA inspect_macho로`, `REA로 UnityFramework`)가 없고, `il2cpp_asm`이 덤프 산출물(`dump.cs` · `script.json`)을 가리킴. APP은 `il2cpp_asm --check-encryption` 명령이 있음
 - 개인 사용 안내: APK · Unity APK의 복제 APK 단계에 "개인 기기 전용 안내"와 작업을 멈추지 말라는 문구가 있고(다른 타겟엔 없어야 함), Unity 프리셋 4종의 공통 규칙에 공유 금지 안내가 있음(다른 타겟엔 없어야 함). 기기 전송을 "배포"로 표현하지 않음
 - APK · Unity APK: 원본과 서명이 다른 수정 APK를 덮어쓰지 말라는 경고(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`)와 `.mod` 복제 패키지 안내가 있음. Unity APK는 Play 자동 업데이트 해제 경고, Frida Gadget `script` 모드(`libfrida-gadget.config.so` · `mod.js` · `frida-il2cpp-bridge`), OBB 복사 안내가 모두 포함됨
+- 모든 타겟: `## 아카이빙 · 보존 · 오프라인 모드 지침 (요청 시 수행)` 섹션에 원본 스냅샷(`archive_manifest.md`), 네트워크 의존성 매핑(`offline_map.md`), 로컬 우선 폴백·로컬 세이브 분리·업로드 단락, 단절 환경(오프라인) 실행 검증 및 타겟별 보존·오프라인 포인트가 포함됨
 
 ---
 
@@ -202,6 +203,25 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 5. 실행 검증
    - 게임 실행 후 BepInEx\LogOutput.log 또는 MelonLoader\Latest.log에서 플러그인이 로드되는지 확인해줘.
 
+## 아카이빙 · 보존 · 오프라인 모드 지침 (요청 시 수행)
+내가 아카이빙, 영구 보존, 또는 오프라인 모드 구현을 요청한 경우 아래 순서로 분석·구현을 함께 진행해줘.
+1. **원본 스냅샷 및 에셋 아카이빙** (`D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\archive\`, `D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\docs\archive_manifest.md`)
+   - 대상 바이너리·메타데이터·패키지의 버전, 크기, SHA-256 해시를 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\docs\archive_manifest.md'에 기록해 기준 버전을 고정해줘.
+   - 로컬 캐시, 다운로드 콘텐츠(에셋·번들·차트·오디오·데이터 테이블), 세이브/설정 파일의 저장 경로와 스키마를 파악해 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\archive\'에 원본 사본과 인덱스 매핑을 보존해줘 (원본 설치 폴더는 읽기 전용 유지).
+2. **네트워크 의존성 및 오프라인 진입 장벽 분석** (`D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\docs\offline_map.md`)
+   - 부팅·초기화 시 네트워크 상태 확인, 로그인/게스트 세션, 버전·공지·점검 게이트처럼 오프라인 진입을 막는 분기를 모두 찾아 정리해줘.
+   - 원격 카탈로그·에셋·마스터 데이터 로더와 세이브·점수·텔레메트리 업로드 호출 지점을 표(클래스/메서드/RVA 또는 모듈 · 역할 · 로컬 대체 방안)로 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\docs\offline_map.md'에 기록해줘.
+3. **오프라인 모드 및 로컬 폴백 구현**
+   - **로컬 우선 폴백(Local-First Fallback)**: 원격 요청이 실패하거나 오프라인 모드가 켜져 있을 때 에러·무한 재시도 루프에 빠지지 않고 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\archive\' 또는 로컬 캐시/스냅샷에서 데이터를 대신 반환하도록 후킹·래핑해줘.
+   - **로컬 세이브 분리·리다이렉션**: 클라우드 동기화 대신 별도 로컬 경로(`offline_save` 등)에 읽고 쓰도록 우회해 원본 세이브 손상을 방지하고, 백업·복원이 가능하게 구성해줘.
+   - **업로드·동기화 단락(Short-Circuit)**: 오프라인 상태에서는 점수·통계·텔레메트리·클라우드 쓰기 호출을 네트워크 전송 없이 로컬 성공 응답으로 단락 처리해 크래시나 멈춤을 방지해줘.
+   - **전환 가능한 설정**: 오프라인 모드 ON/OFF와 로컬 아카이브 경로는 설정 파일(config)로 쉽게 전환할 수 있게 분리해줘.
+4. **단절 환경(오프라인) 실행 검증** (`D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\logs\`)
+   - 실제 네트워크를 차단한 상태(방화벽 아웃바운드 차단 또는 기기 비행기 모드)에서 부팅 → 메인 진입 → 아카이빙된 로컬 콘텐츠 로드 → 로컬 세이브 저장·재시작 복원까지 검증하고 결과를 로그로 남겨줘.
+5. **타겟별 보존·오프라인 포인트 (Unity IL2CPP)**
+   - 탐색 키워드: `Application.internetReachability`, `UnityWebRequest`, `HttpClient`, `Addressables` / `AssetBundle` 카탈로그·캐시(`Application.persistentDataPath`, `StreamingAssets`, `%USERPROFILE%\AppData\LocalLow`), `PlayerPrefs` 및 세이브 직렬화 클래스.
+   - 모드 구현: BepInEx 또는 MelonLoader 플러그인에서 Harmony 패치로 원격 로더·초기화 게이트에 로컬 폴백을 연결하고, 로컬 번들/JSON 스냅샷을 우선 읽도록 구성해줘.
+
 ## 공통 규칙
 - 원본 파일과 게임 설치 폴더는 수정하지 마. 필요하면 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\input'에 복사본을 만들어 작업해줘.
 - 단계를 마칠 때마다 'D:\ReaTest\Work Dirs\UnityIl2Cpp-resume\PROGRESS.md'에 `[완료|진행중|막힘] 단계명 — 산출물 경로 — 메모` 형식으로 기록해줘. 다음 세션이 이 파일만 보고 이어갈 수 있어야 해.
@@ -212,7 +232,7 @@ REA MCP 도구 이름(`open_binary`, `binary_overview`, `list_procedures`, `proc
 - 디컴파일 코드·덤프·추출 리소스는 내 PC에서만 쓰고 공유하지 않을 거야. 최종 보고 끝에 이 점을 한 줄로 다시 알려줘.
 
 ## 최종 보고
-1. 이번에 완료한 단계  2. 산출물 경로  3. 핵심 발견 (진입점, 후킹 후보 등)  4. 다음 세션에서 이어서 할 일
+1. 이번에 완료한 단계  2. 산출물 경로  3. 핵심 발견 (진입점, 후킹 후보, 네트워크 의존성·아카이빙 대상 등)  4. 다음 세션에서 이어서 할 일
 ````
 
 ## 샘플: Unity APK · 수행 지침 부분
