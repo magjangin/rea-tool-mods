@@ -157,9 +157,19 @@ foreach (var (kind, target) in fixtures)
         var ws = WorkspaceInspector.Inspect(w, target);
         var prompt = PromptBuilder.Build(new PromptContext(profile, target, w, detection, ws, tools));
         var name = $"{profile.ShortName} / {state}";
-        var problems = ValidatePrompt(prompt, profile, target, w, state, detection);
+        var problems = ValidatePrompt(prompt, profile, target, w, state, detection, preservationMode: false);
         Check("A.생성", name, problems.Count == 0, string.Join("; ", problems));
         if (state is "new" or "resume") File.WriteAllText(Path.Combine(outDir, $"prompt-{kind}-{state}.md"), prompt);
+    }
+
+    // 아카이빙 · 오프라인 보존 모드 ON 검증 (8종 타겟)
+    {
+        var w = Path.Combine(work, $"{kind}-new");
+        var ws = WorkspaceInspector.Inspect(w, target);
+        var prompt = PromptBuilder.Build(new PromptContext(profile, target, w, detection, ws, tools, PreservationMode: true));
+        var problems = ValidatePrompt(prompt, profile, target, w, "new", detection, preservationMode: true);
+        Check("A.보존모드", $"{profile.ShortName} / preservation", problems.Count == 0, string.Join("; ", problems));
+        File.WriteAllText(Path.Combine(outDir, $"prompt-{kind}-preservation.md"), prompt);
     }
 }
 
@@ -180,7 +190,7 @@ else
     Skip("A.판별", "앱 실행 별칭 → 실제 exe", @"%LOCALAPPDATA%\Microsoft\WindowsApps에 별칭 없음");
 }
 
-List<string> ValidatePrompt(string p, TargetProfile profile, string target, string w, string state, DetectionResult d)
+List<string> ValidatePrompt(string p, TargetProfile profile, string target, string w, string state, DetectionResult d, bool preservationMode)
 {
     var errs = new List<string>();
     void Need(bool cond, string msg) { if (!cond) errs.Add(msg); }
@@ -189,8 +199,12 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
     Need(p.Contains($"- 대상 파일: {target}"), "대상 파일 경로");
     Need(p.Contains($"- 작업 디렉터리: {w}"), "작업 디렉터리");
     Need(p.Contains("## 0. 작업 폴더 상태") && p.Contains("## 사용할 도구") && p.Contains("## 수행 지침") &&
-         p.Contains("## 아카이빙 · 보존 · 오프라인 모드 지침 (요청 시 수행)") &&
          p.Contains("## 공통 규칙") && p.Contains("## 최종 보고"), "필수 섹션");
+    Need(preservationMode == p.Contains("## 아카이빙 · 보존 · 오프라인 모드 구현"),
+         preservationMode ? "보존 모드 ON인데 보존 섹션 누락" : "보존 모드 OFF인데 보존 섹션 노출");
+    Need(preservationMode == p.Contains("+ 아카이빙·오프라인 보존 모드 요청"),
+         preservationMode ? "보존 모드 ON인데 머리말에 보존 목표 누락" : "보존 모드 OFF인데 머리말에 보존 목표 노출");
+    Need(!p.Contains("(요청 시 수행)"), "모호한 '(요청 시 수행)' 문구가 남아 있음");
     // 가드레일 · 공통 범위 규칙 · 복호화 멈춤 지시는 뺐음: 어떤 타겟에도 없어야 함
     Need(!p.Contains("범위: 로컬·싱글플레이"), "공통 범위 규칙이 남아 있음");
     Need(!p.Contains("복호화하지 말고"), "복호화 멈춤 지시가 남아 있음");
@@ -276,20 +290,39 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
         Need(stepsPart.Contains("OBB 복사"), "Unity APK: OBB 복사 안내");
     }
 
-    // 아카이빙 · 보존 · 오프라인 모드 지침 (공통 + 타겟별 포인트)
-    Need(stepsPart.Contains($"{w}\\docs\\archive_manifest.md") && stepsPart.Contains($"{w}\\docs\\offline_map.md") &&
-         stepsPart.Contains("로컬 우선 폴백") && stepsPart.Contains("단절 환경(오프라인) 실행 검증"),
-         "아카이빙 · 보존 · 오프라인 모드 공통 지침 누락");
-    if (profile.Kind is TargetKind.UnityIl2Cpp or TargetKind.UnityMono)
-        Need(stepsPart.Contains("UnityWebRequest") && stepsPart.Contains("Addressables"), "Unity PC: 보존·오프라인 탐색 키워드 누락");
-    if (profile.Kind is TargetKind.UnityApk or TargetKind.Apk)
-        Need(stepsPart.Contains("adb pull") && stepsPart.Contains("비행기 모드"), "Android: 에셋 보존·비행기 모드 검증 안내 누락");
-    if (profile.Kind == TargetKind.UnityApp)
-        Need(stepsPart.Contains("StreamingAssets/") && stepsPart.Contains("il2cpp_asm"), "Unity APP: 번들 리소스·오프라인 매핑 안내 누락");
-    if (profile.Kind == TargetKind.App)
-        Need(stepsPart.Contains("autoUpdater") && stepsPart.Contains("userData"), "Electron APP: 원격 호출·자동 업데이트 비활성화 안내 누락");
-    if (profile.Kind is TargetKind.Exe or TargetKind.Dll)
-        Need(stepsPart.Contains("WinHTTP") && stepsPart.Contains("HttpClient"), "EXE/DLL: 네트워크 API·로컬 폴백 안내 누락");
+    // 아카이빙 · 보존 · 오프라인 모드 지침 (PreservationMode ON일 때만 포함)
+    if (preservationMode)
+    {
+        Need(stepsPart.Contains($"{w}\\docs\\archive_manifest.md") && stepsPart.Contains($"{w}\\docs\\offline_map.md") &&
+             stepsPart.Contains($"{w}\\archive\\responses\\") && stepsPart.Contains("로컬 리플레이(목) 서버") &&
+             stepsPart.Contains("로컬 우선 폴백") && stepsPart.Contains("단절 환경(오프라인) 실행 검증"),
+             "아카이빙 · 보존 · 오프라인 모드 공통 지침 누락");
+        if (profile.Kind is TargetKind.UnityIl2Cpp or TargetKind.UnityMono)
+            Need(stepsPart.Contains("UnityWebRequest") && stepsPart.Contains("Addressables") &&
+                 stepsPart.Contains("SteamAPI") && stepsPart.Contains("BIsDlcInstalled") &&
+                 stepsPart.Contains("Goldberg") && stepsPart.Contains("IEnumerator"),
+                 "Unity PC: 보존·오프라인·Steam/DLC·코루틴 탐색/구현 키워드 누락");
+        if (profile.Kind == TargetKind.UnityApk)
+            Need(stepsPart.Contains("adb pull") && stepsPart.Contains("adb push") &&
+                 stepsPart.Contains("/storage/emulated/0/Android/data/") && stepsPart.Contains("Interceptor.replace") &&
+                 stepsPart.Contains("비행기 모드"),
+                 "Unity APK: 에셋 보존·경로·Frida·비행기 모드 검증 안내 누락");
+        if (profile.Kind == TargetKind.Apk)
+            Need(stepsPart.Contains("adb pull") && stepsPart.Contains("adb push") &&
+                 stepsPart.Contains("Java.use") && stepsPart.Contains("OkHttp") &&
+                 stepsPart.Contains("비행기 모드"),
+                 "APK: Java.use HTTP 후킹·에셋 보존·비행기 모드 검증 안내 누락");
+        if (profile.Kind == TargetKind.UnityApp)
+            Need(stepsPart.Contains("StreamingAssets/") && stepsPart.Contains("il2cpp_asm") && stepsPart.Contains("EndTime"),
+                 "Unity APP: 번들 리소스·오프라인 매핑·만료 분기 안내 누락");
+        if (profile.Kind == TargetKind.App)
+            Need(stepsPart.Contains("autoUpdater") && stepsPart.Contains("userData") && stepsPart.Contains("protocol.handle"),
+                 "Electron APP: 원격 호출·로컬 핸들러·자동 업데이트 비활성화 안내 누락");
+        if (profile.Kind is TargetKind.Exe or TargetKind.Dll)
+            Need(stepsPart.Contains("WinHTTP") && stepsPart.Contains("HttpClient") &&
+                 stepsPart.Contains("SteamAPI") && stepsPart.Contains("Goldberg"),
+                 "EXE/DLL: 네트워크·Steam/Goldberg·로컬 폴백 안내 누락");
+    }
     return errs;
 }
 
@@ -515,6 +548,14 @@ await vm.CheckEnvironmentAsync();
 Check("C.VM", "환경 재점검이 사용자가 고친 프롬프트를 덮어쓰지 않음", vm.PromptText == "사용자가 직접 고친 프롬프트", "");
 vm.RegeneratePromptManually();
 Check("C.VM", "🔄 다시 생성은 덮어씀", vm.PromptText.StartsWith("# [EXE]"), "");
+
+Check("C.VM", "기본값: 아카이빙·오프라인 보존 모드 OFF", !vm.IncludePreservationMode && !vm.PromptText.Contains("## 아카이빙 · 보존 · 오프라인 모드 구현"), "");
+vm.IncludePreservationMode = true;
+Check("C.VM", "보존 모드 토글 ON → 필수 목표·섹션 즉시 반영",
+    vm.PromptText.Contains("+ 아카이빙·오프라인 보존 모드 요청") && vm.PromptText.Contains("## 아카이빙 · 보존 · 오프라인 모드 구현"), "");
+vm.IncludePreservationMode = false;
+Check("C.VM", "보존 모드 토글 OFF → 일반 프롬프트 복귀",
+    !vm.PromptText.Contains("+ 아카이빙·오프라인 보존 모드 요청") && !vm.PromptText.Contains("## 아카이빙 · 보존 · 오프라인 모드 구현"), "");
 
 if (alias != null)
 {
