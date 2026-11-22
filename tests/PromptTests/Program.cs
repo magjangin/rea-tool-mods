@@ -189,6 +189,7 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
     Need(p.Contains($"- 대상 파일: {target}"), "대상 파일 경로");
     Need(p.Contains($"- 작업 디렉터리: {w}"), "작업 디렉터리");
     Need(p.Contains("## 0. 작업 폴더 상태") && p.Contains("## 사용할 도구") && p.Contains("## 수행 지침") &&
+         p.Contains("## 아카이빙 · 보존 · 오프라인 모드 지침 (요청 시 수행)") &&
          p.Contains("## 공통 규칙") && p.Contains("## 최종 보고"), "필수 섹션");
     // 가드레일 · 공통 범위 규칙 · 복호화 멈춤 지시는 뺐음: 어떤 타겟에도 없어야 함
     Need(!p.Contains("범위: 로컬·싱글플레이"), "공통 범위 규칙이 남아 있음");
@@ -274,6 +275,21 @@ List<string> ValidatePrompt(string p, TargetProfile profile, string target, stri
         Need(stepsPart.Contains("libfrida-gadget.config.so") && stepsPart.Contains("mod.js") && stepsPart.Contains("frida-il2cpp-bridge"), "Unity APK: Frida Gadget script 모드 및 mod.js 안내");
         Need(stepsPart.Contains("OBB 복사"), "Unity APK: OBB 복사 안내");
     }
+
+    // 아카이빙 · 보존 · 오프라인 모드 지침 (공통 + 타겟별 포인트)
+    Need(stepsPart.Contains($"{w}\\docs\\archive_manifest.md") && stepsPart.Contains($"{w}\\docs\\offline_map.md") &&
+         stepsPart.Contains("로컬 우선 폴백") && stepsPart.Contains("단절 환경(오프라인) 실행 검증"),
+         "아카이빙 · 보존 · 오프라인 모드 공통 지침 누락");
+    if (profile.Kind is TargetKind.UnityIl2Cpp or TargetKind.UnityMono)
+        Need(stepsPart.Contains("UnityWebRequest") && stepsPart.Contains("Addressables"), "Unity PC: 보존·오프라인 탐색 키워드 누락");
+    if (profile.Kind is TargetKind.UnityApk or TargetKind.Apk)
+        Need(stepsPart.Contains("adb pull") && stepsPart.Contains("비행기 모드"), "Android: 에셋 보존·비행기 모드 검증 안내 누락");
+    if (profile.Kind == TargetKind.UnityApp)
+        Need(stepsPart.Contains("StreamingAssets/") && stepsPart.Contains("il2cpp_asm"), "Unity APP: 번들 리소스·오프라인 매핑 안내 누락");
+    if (profile.Kind == TargetKind.App)
+        Need(stepsPart.Contains("autoUpdater") && stepsPart.Contains("userData"), "Electron APP: 원격 호출·자동 업데이트 비활성화 안내 누락");
+    if (profile.Kind is TargetKind.Exe or TargetKind.Dll)
+        Need(stepsPart.Contains("WinHTTP") && stepsPart.Contains("HttpClient"), "EXE/DLL: 네트워크 API·로컬 폴백 안내 누락");
     return errs;
 }
 
