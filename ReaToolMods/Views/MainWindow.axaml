@@ -208,7 +208,7 @@
                         Padding="20">
                     <StackPanel Spacing="16">
                         <!-- Card Header -->
-                        <Grid ColumnDefinitions="*,Auto">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                             <StackPanel Grid.Column="0" Spacing="3">
                                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                                     <TextBlock Text="✍️ 디컴파일 및 실행 워크플로우 프롬프트" 
@@ -226,6 +226,14 @@
                                            Opacity="0.75"
                                            TextWrapping="Wrap" />
                             </StackPanel>
+                            <CheckBox Grid.Column="1"
+                                      IsChecked="{Binding IncludePreservationMode}"
+                                      Content="📦 아카이빙·오프라인 보존 모드"
+                                      ToolTip.Tip="체크하면 프롬프트에 아카이빙 · 영구 보존 · 오프라인 모드 구현을 필수 목표로 포함합니다"
+                                      VerticalAlignment="Center"
+                                      FontWeight="SemiBold"
+                                      FontSize="12.5"
+                                      Cursor="Hand" />
                         </Grid>
 
                         <!-- Large Multi-line Prompt Editor -->

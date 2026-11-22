@@ -56,6 +56,10 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     public partial string SelectedTargetCategory { get; set; } = "EXE";
 
+    /// <summary>아카이빙 · 영구 보존 · 오프라인 모드 구현을 프롬프트의 필수 목표로 포함할지 여부</summary>
+    [ObservableProperty]
+    public partial bool IncludePreservationMode { get; set; }
+
     [ObservableProperty]
     public partial string PromptText { get; set; } = "";
 
@@ -222,6 +226,14 @@ public partial class MainViewModel : ViewModelBase
         RegeneratePrompt();
     }
 
+    partial void OnIncludePreservationModeChanged(bool value)
+    {
+        RegeneratePrompt();
+        StatusMessage = value
+            ? $"[{_profile.ShortName}] 아카이빙·오프라인 보존 모드 지침이 필수 목표로 포함되었습니다."
+            : $"[{_profile.ShortName}] 일반 분석·모딩 프롬프트로 전환되었습니다.";
+    }
+
     /// <summary>
     /// 대상 파일 내용을 판별해 타겟 버튼, 작업 폴더, 프롬프트를 갱신합니다.
     /// </summary>
@@ -293,7 +305,7 @@ public partial class MainViewModel : ViewModelBase
 
         if (onlyIfUnmodified && PromptText != _lastGeneratedPrompt) return;
 
-        var ctx = new PromptContext(_profile, target, WorkDirPath, _detection, ws, ToolLocator.LocateAll());
+        var ctx = new PromptContext(_profile, target, WorkDirPath, _detection, ws, ToolLocator.LocateAll(), IncludePreservationMode);
         PromptText = _lastGeneratedPrompt = PromptBuilder.Build(ctx);
     }
 

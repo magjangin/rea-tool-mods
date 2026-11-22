@@ -14,10 +14,11 @@ public sealed record PromptContext(
     string WorkDir,
     DetectionResult? Detection,
     WorkspaceState Workspace,
-    IReadOnlyDictionary<ToolId, ToolLocation> Tools);
+    IReadOnlyDictionary<ToolId, ToolLocation> Tools,
+    bool PreservationMode = false);
 
 /// <summary>
-/// 공통 머리말(대상 정보) + 작업 폴더 상태(새로 시작/이어서) + 도구 경로 + 타겟별 단계 + 아카이빙·보존·오프라인 모드 지침 + 공통 규칙으로 프롬프트를 조립합니다.
+/// 공통 머리말(대상 정보) + 작업 폴더 상태(새로 시작/이어서) + 도구 경로 + 타겟별 단계 + (선택) 아카이빙·보존·오프라인 모드 구현 + 공통 규칙으로 프롬프트를 조립합니다.
 /// Unity 프리셋은 별도 가드레일 섹션 없이 공통 규칙에 개인 사용 안내 한 줄만 더 받습니다 (작업을 멈추는 조건이 아닌 사용자 안내).
 /// </summary>
 public static class PromptBuilder
@@ -37,7 +38,8 @@ public static class PromptBuilder
         sb.AppendLine("## 수행 지침");
         sb.AppendLine(Steps(ctx).Trim());
         sb.AppendLine();
-        AppendPreservationGuide(sb, ctx);
+        if (ctx.PreservationMode)
+            AppendPreservationGuide(sb, ctx);
         AppendRules(sb, ctx);
         return sb.ToString().TrimEnd();
     }
@@ -58,7 +60,8 @@ public static class PromptBuilder
     private static void AppendHeader(StringBuilder sb, PromptContext ctx)
     {
         var d = Matching(ctx);
-        sb.AppendLine($"# [{ctx.Profile.ShortName}] {Title(ctx.Profile.Kind)} 요청");
+        var modeSuffix = ctx.PreservationMode ? " + 아카이빙·오프라인 보존 모드" : "";
+        sb.AppendLine($"# [{ctx.Profile.ShortName}] {Title(ctx.Profile.Kind)}{modeSuffix} 요청");
         sb.AppendLine($"- 대상 파일: {Target(ctx)}");
         sb.AppendLine($"- 작업 디렉터리: {ctx.WorkDir}");
 
@@ -161,19 +164,21 @@ public static class PromptBuilder
     private static void AppendPreservationGuide(StringBuilder sb, PromptContext ctx)
     {
         var w = ctx.WorkDir;
-        sb.AppendLine("## 아카이빙 · 보존 · 오프라인 모드 지침 (요청 시 수행)");
-        sb.AppendLine("내가 아카이빙, 영구 보존, 또는 오프라인 모드 구현을 요청한 경우 아래 순서로 분석·구현을 함께 진행해줘.");
+        sb.AppendLine("## 아카이빙 · 보존 · 오프라인 모드 구현");
+        sb.AppendLine("위 기본 분석·구현 단계와 함께 아카이빙, 영구 보존, 오프라인 모드 구현을 아래 순서로 반드시 진행해줘.");
         sb.AppendLine($"1. **원본 스냅샷 및 에셋 아카이빙** (`{w}\\archive\\`, `{w}\\docs\\archive_manifest.md`)");
         sb.AppendLine($"   - 대상 바이너리·메타데이터·패키지의 버전, 크기, SHA-256 해시를 '{w}\\docs\\archive_manifest.md'에 기록해 기준 버전을 고정해줘.");
-        sb.AppendLine($"   - 로컬 캐시, 다운로드 콘텐츠(에셋·번들·차트·오디오·데이터 테이블), 세이브/설정 파일의 저장 경로와 스키마를 파악해 '{w}\\archive\\'에 원본 사본과 인덱스 매핑을 보존해줘 (원본 설치 폴더는 읽기 전용 유지).");
-        sb.AppendLine($"2. **네트워크 의존성 및 오프라인 진입 장벽 분석** (`{w}\\docs\\offline_map.md`)");
-        sb.AppendLine("   - 부팅·초기화 시 네트워크 상태 확인, 로그인/게스트 세션, 버전·공지·점검 게이트처럼 오프라인 진입을 막는 분기를 모두 찾아 정리해줘.");
+        sb.AppendLine($"   - 로컬 캐시, 다운로드 콘텐츠(에셋·번들·차트·오디오·데이터 테이블), 세이브/설정 파일의 저장 경로와 스키마를 파악해 '{w}\\archive\\'에 원본 사본과 인덱스 매핑을 보존해줘 (게임 원본 바이너리·에셋 파일은 덮어쓰지 않고 읽기 전용 유지).");
+        sb.AppendLine($"2. **네트워크·플랫폼 의존성 및 오프라인 진입 장벽 분석** (`{w}\\docs\\offline_map.md`)");
+        sb.AppendLine("   - 부팅·초기화 시 네트워크 상태 확인, 로그인/게스트 세션, 버전·공지·점검 게이트, 플랫폼·DLC 소유 확인, 기간 한정/콜라보 만료 체크(`DateTime.UtcNow`·서버 시각·`EndTime` 비교 등)처럼 오프라인 진입이나 콘텐츠 접근을 막는 분기를 모두 찾아 정리해줘.");
         sb.AppendLine($"   - 원격 카탈로그·에셋·마스터 데이터 로더와 세이브·점수·텔레메트리 업로드 호출 지점을 표(클래스/메서드/RVA 또는 모듈 · 역할 · 로컬 대체 방안)로 '{w}\\docs\\offline_map.md'에 기록해줘.");
-        sb.AppendLine("3. **오프라인 모드 및 로컬 폴백 구현**");
-        sb.AppendLine($"   - **로컬 우선 폴백(Local-First Fallback)**: 원격 요청이 실패하거나 오프라인 모드가 켜져 있을 때 에러·무한 재시도 루프에 빠지지 않고 '{w}\\archive\\' 또는 로컬 캐시/스냅샷에서 데이터를 대신 반환하도록 후킹·래핑해줘.");
+        sb.AppendLine("   - **구현 방식 선택**: 단순 게이트·캐시형이면 **메서드 후킹(로컬 폴백)**을, REST API 엔드포인트가 많은 구조면 **`http://127.0.0.1:<port>` 로컬 리플레이(목) 서버 + Base URL 리다이렉션**을 우선 검토해 선택한 근거를 함께 적어줘.");
+        sb.AppendLine("3. **온라인 응답 녹화(Record) 및 오프라인 재생(Replay)·로컬 폴백 구현**");
+        sb.AppendLine($"   - **온라인 선(先) 녹화**: 로컬 캐시에 파일로 남지 않고 메모리에서만 소비되는 API 응답(로그인·프로필·콘텐츠 목록 JSON 등)은, 먼저 온라인 상태에서 로깅/덤프 훅이나 로컬 프록시를 붙여 실제 응답을 '{w}\\archive\\responses\\'에 녹화해 확보해줘 (응답 스키마를 추측해서 임의로 만들지 말 것).");
+        sb.AppendLine($"   - **로컬 우선 폴백(Local-First Fallback) / 로컬 리플레이 서버**: 원격 요청이 실패하거나 오프라인 모드가 켜져 있을 때 에러·무한 재시도 루프에 빠지지 않고 '{w}\\archive\\'의 파일 또는 녹화된 응답 스냅샷을 대신 반환하도록 후킹·래핑(또는 로컬 리플레이 서버로 리다이렉션)해줘.");
         sb.AppendLine("   - **로컬 세이브 분리·리다이렉션**: 클라우드 동기화 대신 별도 로컬 경로(`offline_save` 등)에 읽고 쓰도록 우회해 원본 세이브 손상을 방지하고, 백업·복원이 가능하게 구성해줘.");
         sb.AppendLine("   - **업로드·동기화 단락(Short-Circuit)**: 오프라인 상태에서는 점수·통계·텔레메트리·클라우드 쓰기 호출을 네트워크 전송 없이 로컬 성공 응답으로 단락 처리해 크래시나 멈춤을 방지해줘.");
-        sb.AppendLine("   - **전환 가능한 설정**: 오프라인 모드 ON/OFF와 로컬 아카이브 경로는 설정 파일(config)로 쉽게 전환할 수 있게 분리해줘.");
+        sb.AppendLine("   - **전환 가능한 설정**: 오프라인 모드 ON/OFF, 녹화(Record)/재생(Replay) 모드, 로컬 아카이브 경로는 설정 파일(config)로 쉽게 전환할 수 있게 분리해줘.");
         sb.AppendLine($"4. **단절 환경(오프라인) 실행 검증** (`{w}\\logs\\`)");
         sb.AppendLine("   - 실제 네트워크를 차단한 상태(방화벽 아웃바운드 차단 또는 기기 비행기 모드)에서 부팅 → 메인 진입 → 아카이빙된 로컬 콘텐츠 로드 → 로컬 세이브 저장·재시작 복원까지 검증하고 결과를 로그로 남겨줘.");
         sb.AppendLine($"5. **타겟별 보존·오프라인 포인트 ({ctx.Profile.ShortName})**");
@@ -189,28 +194,33 @@ public static class PromptBuilder
         {
             TargetKind.UnityIl2Cpp or TargetKind.UnityMono =>
             [
-                "탐색 키워드: `Application.internetReachability`, `UnityWebRequest`, `HttpClient`, `Addressables` / `AssetBundle` 카탈로그·캐시(`Application.persistentDataPath`, `StreamingAssets`, `%USERPROFILE%\\AppData\\LocalLow`), `PlayerPrefs` 및 세이브 직렬화 클래스.",
-                "모드 구현: BepInEx 또는 MelonLoader 플러그인에서 Harmony 패치로 원격 로더·초기화 게이트에 로컬 폴백을 연결하고, 로컬 번들/JSON 스냅샷을 우선 읽도록 구성해줘."
+                "탐색 키워드: 네트워크/에셋(`Application.internetReachability`, `UnityWebRequest`, `HttpClient`, `Addressables` / `AssetBundle` 카탈로그·캐시(`Application.persistentDataPath`, `StreamingAssets`, `%USERPROFILE%\\AppData\\LocalLow`), `PlayerPrefs` 및 세이브 직렬화), 플랫폼/DLC/만료(`SteamAPI`, `SteamClient`, `SteamApps.BIsDlcInstalled`, `BIsSubscribedApp`, `DLCVerify`, `SteamRemoteStorage`, `DateTime.UtcNow`·`EndTime` 기반 기간 만료 체크).",
+                "모드 구현: Steam 연동 타이틀은 Goldberg Emulator → Steamless → 로컬 Steam API 후킹(`BIsDlcInstalled`, `DLCVerify` 등) 순서로 오프라인 전환을 검토하고, BepInEx 또는 MelonLoader 플러그인에서 Harmony 패치로 원격 로더·초기화 게이트에 로컬 폴백을 연결해줘. `UnityWebRequest`·`IEnumerator` 코루틴·`async` 비동기 로더는 단순 Prefix 반환값 교체 대신 콜백(`Action<...>`) 직접 호출이나 대체 `IEnumerator` 반환(`yield break`) 패턴으로 처리해줘."
             ],
-            TargetKind.UnityApk or TargetKind.Apk =>
+            TargetKind.UnityApk =>
             [
-                $"안드로이드 에셋 보존: `/sdcard/Android/obb/<패키지명>`과 `/sdcard/Android/data/<패키지명>/files`의 다운로드 에셋·캐시·로컬 DB를 `{Tool(ctx, ToolId.Adb)} pull`로 '{w}\\archive\\'에 확보해줘 (Play 스토어 자동 업데이트 해제 유지).",
-                "오프라인 후킹·검증: `.mod` 복제 앱 + Frida Gadget `script` 모드(`mod.js`)에서 네트워크·로더 메서드를 `Interceptor.replace`로 로컬 파일(`/sdcard/Android/data/<패키지명>.mod/files/archive/...`) 폴백으로 연결하고, 기기 비행기 모드에서 동작을 검증해줘."
+                $"안드로이드 에셋 보존: `/storage/emulated/0/Android/obb/<패키지명>`과 `/storage/emulated/0/Android/data/<패키지명>/files`의 다운로드 에셋·캐시·로컬 DB를 `{Tool(ctx, ToolId.Adb)} pull`로 '{w}\\archive\\'에 확보해줘 (Play 스토어 자동 업데이트 해제 유지).",
+                $"오프라인 후킹·검증: `.mod` 복제 앱 + Frida Gadget `script` 모드(`mod.js`)에서 네트워크·로더 메서드를 `Interceptor.replace`로 로컬 파일(`/storage/emulated/0/Android/data/<패키지명>.mod/files/archive/...`) 폴백으로 연결해줘. 아카이브 파일을 기기에 넣을 때는 `cp -r`(권한 `2770` 문제) 대신 `{Tool(ctx, ToolId.Adb)} push`로 전송하고, 기기 비행기 모드에서 동작을 검증해줘."
+            ],
+            TargetKind.Apk =>
+            [
+                $"안드로이드 에셋 보존: `/storage/emulated/0/Android/data/<패키지명>/files`의 다운로드 에셋·캐시·SQLite DB를 `{Tool(ctx, ToolId.Adb)} pull`로 '{w}\\archive\\'에 확보해줘 (Play 스토어 자동 업데이트 해제 유지).",
+                $"오프라인 후킹·검증: `.mod` 복제 앱 + Frida Gadget `script` 모드(`mod.js`)에서 `Java.use(...)`로 `OkHttp` / `HttpURLConnection` / `Retrofit` 등 HTTP 클라이언트나 리소스 로더를 후킹해 로컬 파일(`/storage/emulated/0/Android/data/<패키지명>.mod/files/archive/...`) 스냅샷을 반환하도록 연결해줘 (네이티브 `.so` 로더만 `Interceptor.replace` 사용, 아카이브 전송은 `{Tool(ctx, ToolId.Adb)} push` 사용, 기기 비행기 모드에서 검증)."
             ],
             TargetKind.UnityApp =>
             [
                 $"번들 리소스 정리: 앱 번들 내부(`Data/`, `StreamingAssets/`, `Frameworks/`)와 앱 컨테이너 캐시·로컬 리소스 구조를 '{w}\\docs\\archive_manifest.md'에 정리해줘.",
-                $"오프라인 분기 매핑: `{Tool(ctx, ToolId.Il2CppAsm)}` 분석으로 네트워크·리소스 로더 진입점과 오프라인 진입 분기를 '{w}\\docs\\offline_map.md'에 매핑해줘."
+                $"오프라인 분기 매핑: `{Tool(ctx, ToolId.Il2CppAsm)}` 분석으로 네트워크·리소스 로더 진입점, 오프라인 진입 분기, 기간 만료(`DateTime.UtcNow`·`EndTime`) 체크를 '{w}\\docs\\offline_map.md'에 매핑해줘."
             ],
             TargetKind.App =>
             [
                 $"원격 호출·캐시 분석: 언팩된 '{w}\\extracted'에서 원격 API 호출(`fetch`, `axios`, `electron.net`, `ipcMain`), 로컬 데이터 경로(`app.getPath('userData')`), 자동 업데이트(`autoUpdater`) 지점을 찾아 '{w}\\docs\\offline_map.md'에 정리해줘.",
-                "로컬 실행 보존: 원격 응답 스냅샷을 로컬 핸들러로 대체하고 자동 업데이트를 비활성화해 오프라인에서도 동일 UI/기능이 동작하는지 확인해줘."
+                "로컬 실행 보존: 온라인에서 녹화한 원격 응답 스냅샷을 로컬 핸들러(`ipcMain` / `protocol.handle` / `session.webRequest`) 또는 로컬 리플레이 서버로 대체하고 자동 업데이트를 비활성화해 오프라인에서도 동일 UI/기능이 동작하는지 확인해줘."
             ],
             _ =>
             [
-                "네트워크·저장소 탐색: 네트워크 API(`WinHTTP`, `WinINet`, `Winsock`, `HttpClient`, `WebClient`), 로컬 설정/캐시 경로(`%APPDATA%`, `%LOCALAPPDATA%`, 레지스트리), 외부 리소스 로더를 식별해줘.",
-                "로컬 폴백 설계: 오프라인 초기화 분기와 로컬 파일/스냅샷 대체 경로를 스켈레톤 또는 후킹 포인트에 반영해 단절 환경에서도 실행되게 구성해줘."
+                "네트워크·플랫폼·저장소 탐색: 네트워크 API(`WinHTTP`, `WinINet`, `Winsock`, `HttpClient`, `WebClient`), 플랫폼/DLC 확인(`SteamAPI`, `steam_api64.dll`, `BIsDlcInstalled`, `BIsSubscribedApp`), 기간 만료(`GetSystemTime`, `DateTime.UtcNow`), 로컬 설정/캐시 경로(`%APPDATA%`, `%LOCALAPPDATA%`, 레지스트리)를 식별해줘.",
+                "로컬 폴백 설계: Steam 연동 바이너리는 Goldberg Emulator 등 로컬 오프라인 에뮬레이션과 API 후킹을 함께 검토하고, 오프라인 초기화 분기와 로컬 파일/리플레이 서버 대체 경로를 스켈레톤 또는 후킹 포인트에 반영해 단절 환경에서도 실행되게 구성해줘."
             ]
         };
     }
@@ -219,7 +229,7 @@ public static class PromptBuilder
     {
         var w = ctx.WorkDir;
         sb.AppendLine("## 공통 규칙");
-        sb.AppendLine($"- 원본 파일과 게임 설치 폴더는 수정하지 마. 필요하면 '{w}\\input'에 복사본을 만들어 작업해줘.");
+        sb.AppendLine($"- 게임·앱 원본 바이너리와 에셋 파일은 덮어쓰지 마. 원본 수정이 필요하면 '{w}\\input'에 복사본을 만들어 작업해줘 (모드 로더의 `Mods/` · `BepInEx/plugins/` 폴더에 플러그인 DLL과 설정 파일을 배치하는 것은 허용).");
         sb.AppendLine($"- 단계를 마칠 때마다 '{w}\\PROGRESS.md'에 `[완료|진행중|막힘] 단계명 — 산출물 경로 — 메모` 형식으로 기록해줘. 다음 세션이 이 파일만 보고 이어갈 수 있어야 해.");
         sb.AppendLine($"- 실행한 명령과 핵심 출력은 '{w}\\logs\\'에 남기고, 확인된 사실과 추정을 구분해서 써줘.");
         sb.AppendLine("- 도구가 없거나 같은 오류가 2번 이상 반복되면 우회책을 계속 시도하지 말고 원인과 필요한 조치를 정리한 뒤 멈춰줘.");
@@ -233,7 +243,9 @@ public static class PromptBuilder
             sb.AppendLine("- 디컴파일 코드·덤프·추출 리소스는 내 PC에서만 쓰고 공유하지 않을 거야. 최종 보고 끝에 이 점을 한 줄로 다시 알려줘.");
         sb.AppendLine();
         sb.AppendLine("## 최종 보고");
-        sb.AppendLine("1. 이번에 완료한 단계  2. 산출물 경로  3. 핵심 발견 (진입점, 후킹 후보, 네트워크 의존성·아카이빙 대상 등)  4. 다음 세션에서 이어서 할 일");
+        sb.AppendLine(ctx.PreservationMode
+            ? "1. 이번에 완료한 단계  2. 산출물 경로  3. 핵심 발견 (진입점, 후킹 후보, 네트워크·플랫폼 의존성, 아카이빙 대상 등)  4. 다음 세션에서 이어서 할 일"
+            : "1. 이번에 완료한 단계  2. 산출물 경로  3. 핵심 발견 (진입점, 후킹 후보 등)  4. 다음 세션에서 이어서 할 일");
     }
 
     // ───────────────────────── 타겟별 단계 ─────────────────────────
