@@ -69,13 +69,7 @@ public static class WorkspaceInspector
         string? tail = null;
         if (progressFile != null)
         {
-            try
-            {
-                var lines = File.ReadAllLines(progressFile);
-                tail = string.Join(Environment.NewLine, lines.Skip(Math.Max(0, lines.Length - MaxTailLines))).Trim();
-                if (tail.Length == 0) tail = null;
-            }
-            catch { }
+            tail = ReadTailLines(progressFile, MaxTailLines);
         }
 
         var meta = LoadMetadata(workDir);
@@ -104,9 +98,9 @@ public static class WorkspaceInspector
         try
         {
             var file = Path.Combine(workDir, MetaDirName, MetaFileName);
-            return File.Exists(file)
-                ? JsonSerializer.Deserialize<WorkspaceMetadata>(File.ReadAllText(file), JsonOptions)
-                : null;
+            if (!File.Exists(file)) return null;
+            using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return JsonSerializer.Deserialize<WorkspaceMetadata>(fs, JsonOptions);
         }
         catch
         {
@@ -142,5 +136,42 @@ public static class WorkspaceInspector
         var file = Path.Combine(dir.FullName, $"{DateTime.Now:yyyyMMdd-HHmmss}-{agentTag}.md");
         File.WriteAllText(file, prompt);
         return file;
+    }
+
+    /// <summary>
+    /// 대용량 파일에서도 전체를 메모리에 올리지 않고 끝 부분에서 최대 maxLines 줄을 효율적으로 읽습니다.
+    /// </summary>
+    private static string? ReadTailLines(string path, int maxLines)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (fs.Length == 0) return null;
+
+            // 파일이 작으면 전체를 줄 단위로 읽음
+            const int bufferSize = 64 * 1024;
+            if (fs.Length <= bufferSize)
+            {
+                using var reader = new StreamReader(fs);
+                var allLines = new List<string>();
+                while (reader.ReadLine() is { } line) allLines.Add(line);
+                var tail = string.Join(Environment.NewLine, allLines.Skip(Math.Max(0, allLines.Count - maxLines))).Trim();
+                return tail.Length > 0 ? tail : null;
+            }
+
+            // 큰 파일: 끝에서 64KB만 버퍼로 읽어서 줄 분리
+            fs.Seek(-bufferSize, SeekOrigin.End);
+            using var tailReader = new StreamReader(fs);
+            var content = tailReader.ReadToEnd();
+            var lines = content.Split('\n');
+            var selected = lines.Skip(Math.Max(0, lines.Length - maxLines)).Select(l => l.TrimEnd('\r'));
+            var result = string.Join(Environment.NewLine, selected).Trim();
+            return result.Length > 0 ? result : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

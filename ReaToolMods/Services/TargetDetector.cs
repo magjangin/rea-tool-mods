@@ -137,13 +137,19 @@ public static partial class TargetDetector
         return warnings;
     }
 
+    /// <summary>
+    /// 다른 프로세스(게임 실행 파일, 에디터 등)가 파일을 열고 있어도 공유 잠금 충돌 없이 안전하게 읽습니다.
+    /// </summary>
+    public static FileStream SafeOpenRead(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
     // ───────────────────────── 파일 시그니처 ─────────────────────────
 
     private static Signature ReadSignature(string path)
     {
-        Span<byte> head = stackalloc byte[8];
-        using var fs = File.OpenRead(path);
-        var n = fs.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+        Span<byte> head = stackalloc byte[16];
+        using var fs = SafeOpenRead(path);
+        var n = fs.ReadAtLeast(head, 8, throwOnEndOfStream: false);
         if (n < 4) return Signature.Unknown;
 
         if (head[0] == 'M' && head[1] == 'Z') return Signature.Pe;
@@ -302,7 +308,7 @@ public static partial class TargetDetector
         r.Kind = TargetKind.UnityIl2Cpp;
         r.Backend = "IL2CPP";
         r.MetadataPath = path;
-        r.MetadataVersion = ReadMetadataVersion(File.OpenRead(path));
+        r.MetadataVersion = ReadMetadataVersion(SafeOpenRead(path));
         r.Evidence.Add(MetadataEvidence(r.MetadataVersion));
         if (r.MetadataVersion == null)
             r.Warnings.Add("global-metadata.dat의 시그니처가 표준(0xFAB11BAF)이 아닙니다 — 암호화/보호된 메타데이터일 수 있습니다.");
@@ -330,11 +336,11 @@ public static partial class TargetDetector
             if (Find("metadata/global-metadata.dat") is { } meta)
             {
                 r.MetadataPath = meta;
-                r.MetadataVersion = ReadMetadataVersion(File.OpenRead(meta));
+                r.MetadataVersion = ReadMetadataVersion(SafeOpenRead(meta));
             }
             r.GameAssemblyPath = Find("/GameAssembly.dylib");
             r.ManagedDir = Find("/Managed/Assembly-CSharp.dll") is { } asm ? Path.GetDirectoryName(asm) : null;
-            if (Find("/Data/globalgamemanagers") is { } ggm) r.UnityVersion = ReadUnityVersion(File.OpenRead(ggm));
+            if (Find("/Data/globalgamemanagers") is { } ggm) r.UnityVersion = ReadUnityVersion(SafeOpenRead(ggm));
 
             var names = files.Select(f => Path.GetRelativePath(path, f).Replace('\\', '/')).ToList();
             if (!ApplyUnityMarkers(names, r, TargetKind.UnityApp))
@@ -387,7 +393,7 @@ public static partial class TargetDetector
             if (File.Exists(metadata))
             {
                 r.MetadataPath = metadata;
-                r.MetadataVersion = ReadMetadataVersion(File.OpenRead(metadata));
+                r.MetadataVersion = ReadMetadataVersion(SafeOpenRead(metadata));
                 r.Evidence.Add(MetadataEvidence(r.MetadataVersion));
                 if (r.MetadataVersion == null)
                     r.Warnings.Add("global-metadata.dat의 시그니처가 표준이 아닙니다 — 암호화/보호된 메타데이터일 수 있습니다.");
@@ -459,7 +465,7 @@ public static partial class TargetDetector
         foreach (var name in new[] { "globalgamemanagers", "data.unity3d", "mainData" })
         {
             var file = Path.Combine(dataDir, name);
-            if (File.Exists(file)) return ReadUnityVersion(File.OpenRead(file));
+            if (File.Exists(file)) return ReadUnityVersion(SafeOpenRead(file));
         }
 
         return null;
@@ -520,7 +526,7 @@ public static partial class TargetDetector
     {
         try
         {
-            using var fs = File.OpenRead(path);
+            using var fs = SafeOpenRead(path);
             using var pe = new PEReader(fs);
             var headers = pe.PEHeaders;
             var anyCpu = pe.HasMetadata && headers.CorHeader is { } cor &&
@@ -745,8 +751,9 @@ public static partial class TargetDetector
     {
         using (stream)
         {
-            var buffer = new byte[4096];
-            var n = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+            var buffer = new byte[16384];
+            var n = stream.Read(buffer, 0, buffer.Length);
+            if (n <= 0) return null;
             var m = UnityVersionRegex().Match(Encoding.ASCII.GetString(buffer, 0, n));
             return m.Success ? m.Groups[1].Value : null;
         }

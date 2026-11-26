@@ -3,6 +3,7 @@
 > **Reverse Engineer Anything (REA) & Game Modding Workflow Helper**  
 > Avalonia UI (.NET 10) 기반의 8종 타겟(EXE · DLL · APK · APP + Unity IL2CPP · Mono · APK · APP) 분석 및 AI 에이전트 연동 도우미
 
+[![Version](https://img.shields.io/badge/version-1.5.0-blue?style=flat-square)](https://github.com/magjangin/rea-tool-mods/releases)
 [![.NET Version](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Avalonia UI](https://img.shields.io/badge/Avalonia-12.1.3-9A4993?style=flat-square&logo=avalonia&logoColor=white)](https://avaloniaui.net/)
 [![REA Compatibility](https://img.shields.io/badge/REA-Compatible-1F6FEB?style=flat-square)](https://github.com/morluto/rea)
@@ -184,10 +185,23 @@ rea-tool-mods/
 
 3. **(Unity APK 작업 시) 에뮬레이터 점검:** `bat/check_android_emulator_env.bat` 실행 (또는 앱의 `📱 VT · 녹스 점검` 버튼). APK 꺼내기부터 분석까지의 순서는 [docs/NOX_WORKFLOW.md](docs/NOX_WORKFLOW.md) 참고
 
-4. **앱 실행:** `bat/run_tool.bat`을 더블 클릭하거나:
+4. **단일 파일 배포 빌드:** `bat/publish.bat` 실행 시 `Publish/ReaToolMods.exe` 생성
+
+5. **앱 실행:** `bat/run_tool.bat`을 더블 클릭하거나:
    ```bash
    dotnet run --project ReaToolMods
    ```
+
+---
+
+## 📝 릴리즈 노트 (Release Notes)
+
+### v1.5.0 (2026-11)
+- 🛡️ **업데이트 내성 및 파일 잠금 공유 위반 방지:** `SafeOpenRead` 적용으로 실행 중인 게임이나 타 프로세스가 바이너리를 점유 중이어도 `IOException` 없이 안전 분석.
+- ⚡ **대용량 파일 읽기 병목 완화:** 대형 `PROGRESS.md`나 작업 로그에서 전체 메모리 할당 없이 뒤쪽 N줄만 역방향 버퍼링으로 추출하는 `ReadTailLines` 적용.
+- 🎮 **Unity 6 & 최신 번들 버전 헤더 인식 강화:** `ReadUnityVersion` 버퍼를 16KB로 확장하고 최신 Unity 6 (6000.x / metadata v39) 지원 및 Cpp2IL / pe_slice 연동 가이드 보강.
+- 🔒 **Steam 보존 모드 자동 업데이트 방지 안내 강화:** `steamapps\appmanifest_<AppID>.acf` 파일의 `AutoUpdateBehavior 1` 설정 및 읽기 전용(`attrib +r`) 잠금 지침 추가.
+- 📦 **버전 관리 자동화:** UI 배지(`AppVersion`)와 프로젝트 속성 연동, 단일 파일 릴리즈 배포 빌드(`bat/publish.bat`) 최신화.
 
 ---
 

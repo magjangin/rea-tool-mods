@@ -39,7 +39,10 @@ public partial class MainViewModel : ViewModelBase
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "source", "repos");
 
     [ObservableProperty]
-    public partial string Title { get; set; } = "REA Tool Mods";
+    public partial string Title { get; set; } = "REA Tool Mods v1.5.0";
+
+    [ObservableProperty]
+    public partial string AppVersion { get; set; } = "v1.5.0";
 
     [ObservableProperty]
     public partial string ReaRepoUrl { get; set; } = "https://github.com/magjangin/rea-hwa";

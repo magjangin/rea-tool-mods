@@ -195,7 +195,7 @@ public static class PromptBuilder
             TargetKind.UnityIl2Cpp or TargetKind.UnityMono =>
             [
                 "탐색 키워드: 네트워크/에셋(`Application.internetReachability`, `UnityWebRequest`, `HttpClient`, `Addressables` / `AssetBundle` 카탈로그·캐시(`Application.persistentDataPath`, `StreamingAssets`, `%USERPROFILE%\\AppData\\LocalLow`), `PlayerPrefs` 및 세이브 직렬화), 플랫폼/DLC/만료(`SteamAPI`, `SteamClient`, `SteamApps.BIsDlcInstalled`, `BIsSubscribedApp`, `DLCVerify`, `SteamRemoteStorage`, `DateTime.UtcNow`·`EndTime` 기반 기간 만료 체크).",
-                "모드 구현: Steam 연동 타이틀은 Goldberg Emulator → Steamless → 로컬 Steam API 후킹(`BIsDlcInstalled`, `DLCVerify` 등) 순서로 오프라인 전환을 검토하고, BepInEx 또는 MelonLoader 플러그인에서 Harmony 패치로 원격 로더·초기화 게이트에 로컬 폴백을 연결해줘. `UnityWebRequest`·`IEnumerator` 코루틴·`async` 비동기 로더는 단순 Prefix 반환값 교체 대신 콜백(`Action<...>`) 직접 호출이나 대체 `IEnumerator` 반환(`yield break`) 패턴으로 처리해줘."
+                "버전 고정 & 모드 구현: Steam 게임은 `steamapps\\appmanifest_<AppID>.acf`의 `AutoUpdateBehavior`를 `1`로 바꾸고 `attrib +r`로 읽기 전용 지정해 자동 업데이트를 차단하고, Goldberg Emulator → Steamless → 로컬 Steam API 후킹(`BIsDlcInstalled`, `DLCVerify` 등) 순서로 오프라인 전환을 검토해줘. BepInEx 또는 MelonLoader 플러그인에서 Harmony 패치로 원격 로더·초기화 게이트에 로컬 폴백을 연결해줘. `UnityWebRequest`·`IEnumerator` 코루틴·`async` 비동기 로더는 단순 Prefix 반환값 교체 대신 콜백(`Action<...>`) 직접 호출이나 대체 `IEnumerator` 반환(`yield break`) 패턴으로 처리해줘."
             ],
             TargetKind.UnityApk =>
             [
