@@ -349,11 +349,15 @@ public static class PromptBuilder
         var metadata = d?.MetadataPath ?? @"<게임>_Data\il2cpp_data\Metadata\global-metadata.dat";
         var version = d?.MetadataVersion is { } v ? $" (metadata v{v})" : "";
         var exeName = d?.DataDir != null ? Path.GetFileName(d.DataDir)[..^"_Data".Length] : "<게임 exe 이름>";
+        var metaVer = d?.MetadataVersion;
+        var versionHint = metaVer >= 31
+            ? $"\n   - ⚠️ 메타데이터 버전이 v{metaVer} (Unity 6 / 최신 빌드)입니다. 공식 Il2CppDumper가 v{metaVer}를 지원하지 않으면, Cpp2IL로 진행하거나 최신 지원 빌드를 사용해줘."
+            : "";
 
         return $"""
             1. IL2CPP 메타데이터 덤프{version}
                `{Tool(ctx, ToolId.Il2CppDumper)} "{gameAssembly}" "{metadata}" "{w}\il2cpp_dump"`
-               - 산출물: DummyDll\, dump.cs, script.json, il2cpp.h
+               - 산출물: DummyDll\, dump.cs, script.json, il2cpp.h{versionHint}
                - Il2CppDumper가 실패하거나 메타데이터 버전을 지원하지 않으면 Cpp2IL로 재시도해줘 (DummyDll만 생성. 오류 시 Enter를 기다리니 입력을 닫고 실행 — bash `< /dev/null`, cmd `< NUL`):
                  `{Tool(ctx, ToolId.Cpp2Il)} --game-path "{root}" --exe-name "{exeName}" --skip-analysis --disable-registration-prompts --output-root "{w}\cpp2il_out"`
                - 게임 폴더에 BepInEx\interop 또는 MelonLoader\Il2CppAssemblies가 이미 있으면 그 어셈블리를 우선 사용해줘.
@@ -411,7 +415,7 @@ public static class PromptBuilder
         var unzipped = $@"{w}\apk_unzipped";
         var backend = d?.Backend;
         var split = d?.IsSplitPackage == true
-            ? "\n   - 분할 패키지(XAPK/APKS)이므로 안에 있는 base.apk와 config.*.apk도 각각 같은 폴더에 풀어줘 (lib\\<abi>\\*.so는 config.<abi>.apk 쪽에 있음)."
+            ? $"\n   - ⚠️ **분할 패키지(XAPK/APKS) 추가 해제**: 네이티브 라이브러리는 `config.{abi}.apk`에 들어 있으므로 해당 파일도 같은 폴더에 풀어줘:\n     `{Tar} -xf \"{unzipped}\\config.{abi.Replace('-', '_')}.apk\" -C \"{unzipped}\"` (또는 `config.{abi}.apk`)"
             : "";
 
         var libil2cpp = $@"{unzipped}\lib\{abi}\libil2cpp.so";

@@ -339,33 +339,86 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 파일이나 폴더를 창으로 드래그 앤 드롭했을 때 대상을 판별하거나 작업 폴더로 지정합니다.
+    /// </summary>
+    public async Task HandleDroppedPathAsync(string rawPath)
+    {
+        if (string.IsNullOrWhiteSpace(rawPath)) return;
+        var path = CleanPath(rawPath);
+
+        if (Directory.Exists(path) && !path.EndsWith(".app", StringComparison.OrdinalIgnoreCase))
+        {
+            var exeInDir = Directory.EnumerateFiles(path, "*.exe")
+                .FirstOrDefault(f => Directory.Exists(Path.Combine(path, Path.GetFileNameWithoutExtension(f) + "_Data")));
+            if (exeInDir != null)
+            {
+                SetTarget(exeInDir);
+                await LoadTargetAsync(exeInDir);
+                return;
+            }
+
+            SetWorkDir(path);
+            _workDirPinned = true;
+            RefreshValidation();
+            RegeneratePrompt();
+            StatusMessage = $"📂 작업 폴더 설정 완료: {path}";
+        }
+        else if (File.Exists(path) || Directory.Exists(path))
+        {
+            SetTarget(path);
+            await LoadTargetAsync(path);
+        }
+    }
+
+    /// <summary>
     /// 접미사가 다른 기존 작업 폴더(예: 예전에 -windows로 만든 Unity 게임 폴더) 중 같은 대상을 다루던 폴더를 찾습니다.
     /// </summary>
     private static string? FindExistingWorkspace(string baseName, string target)
     {
-        if (string.IsNullOrWhiteSpace(target) || !Directory.Exists(ReposRoot)) return null;
+        if (string.IsNullOrWhiteSpace(target)) return null;
 
+        var searchRoots = new List<string>();
+        if (Directory.Exists(ReposRoot)) searchRoots.Add(ReposRoot);
+
+        // 대상 파일의 디렉터리 및 부모 디렉터리도 탐색 후보에 포함
         try
         {
-            foreach (var dir in Directory.EnumerateDirectories(ReposRoot, baseName + "-*"))
+            if (File.Exists(target) || Directory.Exists(target))
             {
-                var meta = WorkspaceInspector.LoadMetadata(dir);
-                if (meta != null)
-                {
-                    if (SamePath(meta.TargetPath, target)) return dir;
-                    continue;
-                }
-
-                // v1.3 이전 버전이 남긴 프롬프트 파일
-                foreach (var legacy in new[] { "claude_prompt.md", "antigravity_prompt.md" })
-                {
-                    var file = Path.Combine(dir, legacy);
-                    if (File.Exists(file) && File.ReadAllText(file).Contains(target, StringComparison.OrdinalIgnoreCase))
-                        return dir;
-                }
+                var parent = Path.GetDirectoryName(Path.GetFullPath(target));
+                if (parent != null && Directory.Exists(parent) && !searchRoots.Contains(parent, StringComparer.OrdinalIgnoreCase))
+                    searchRoots.Add(parent);
+                var grandParent = parent != null ? Path.GetDirectoryName(parent) : null;
+                if (grandParent != null && Directory.Exists(grandParent) && !searchRoots.Contains(grandParent, StringComparer.OrdinalIgnoreCase))
+                    searchRoots.Add(grandParent);
             }
         }
         catch { }
+
+        foreach (var root in searchRoots)
+        {
+            try
+            {
+                foreach (var dir in Directory.EnumerateDirectories(root, baseName + "-*"))
+                {
+                    var meta = WorkspaceInspector.LoadMetadata(dir);
+                    if (meta != null)
+                    {
+                        if (SamePath(meta.TargetPath, target)) return dir;
+                        continue;
+                    }
+
+                    // v1.3 이전 버전이 남긴 프롬프트 파일
+                    foreach (var legacy in new[] { "claude_prompt.md", "antigravity_prompt.md" })
+                    {
+                        var file = Path.Combine(dir, legacy);
+                        if (File.Exists(file) && File.ReadAllText(file).Contains(target, StringComparison.OrdinalIgnoreCase))
+                            return dir;
+                    }
+                }
+            }
+            catch { }
+        }
 
         return null;
     }

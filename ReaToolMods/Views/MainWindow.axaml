@@ -12,7 +12,8 @@
         x:Class="ReaToolMods.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Icon="/Assets/avalonia-logo.ico"
-        Title="REA Tool Mods - Reverse Engineer Anything Helper">
+        Title="REA Tool Mods - Reverse Engineer Anything Helper"
+        DragDrop.AllowDrop="True">
 
     <Design.DataContext>
         <vm:MainViewModel />

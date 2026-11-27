@@ -55,7 +55,8 @@
 | Unity | 📲 **Unity APK** | APK/XAPK 압축 해제 → `libil2cpp.so` + `global-metadata.dat` 덤프(또는 Mono 디컴파일) → `il2cpp_asm` 주석 어셈블리(Windows REA는 ELF를 못 엶) → 녹스 실행 검증 | `-unity-android` |
 | Unity | 🍎 **Unity APP** | iOS IPA / macOS .app — `il2cpp_asm --check-encryption`으로 FairPlay 확인 후 UnityFramework·GameAssembly.dylib 덤프 → `il2cpp_asm` 주석 어셈블리 | `-unity-app` |
 
-### 2. 🔎 파일 내용 기반 자동 판별 + 확장자 검사
+### 2. 🔎 파일 내용 기반 자동 판별 + 드래그 앤 드롭 (Drag & Drop)
+윈도우 탐색기에서 분석할 파일이나 작업 폴더를 **앱 화면으로 바로 끌어다 놓으면(Drag & Drop)** 즉시 타겟을 자동 판별합니다.
 확장자만 보지 않고 **파일 시그니처 · 주변 폴더 구조 · 압축 엔트리**를 확인합니다 (`Services/TargetDetector.cs`).
 - `Game.exe` 옆에 `GameAssembly.dll` / `Game_Data\il2cpp_data\Metadata\global-metadata.dat` → **Unity IL2CPP** (메타데이터 버전 표시)
 - `Game_Data\Managed\Assembly-CSharp.dll` → **Unity Mono**
@@ -197,9 +198,13 @@ rea-tool-mods/
 ## 📝 릴리즈 노트 (Release Notes)
 
 ### v1.5.0 (2026-11)
+- 🖱️ **파일 & 작업 폴더 드래그 앤 드롭 (Drag & Drop):** 탐색기에서 실행 파일, DLL, APK, ASAR 또는 작업 폴더를 앱 창으로 끌어다 놓으면 즉시 분석/바인딩.
 - 🛡️ **업데이트 내성 및 파일 잠금 공유 위반 방지:** `SafeOpenRead` 적용으로 실행 중인 게임이나 타 프로세스가 바이너리를 점유 중이어도 `IOException` 없이 안전 분석.
 - ⚡ **대용량 파일 읽기 병목 완화:** 대형 `PROGRESS.md`나 작업 로그에서 전체 메모리 할당 없이 뒤쪽 N줄만 역방향 버퍼링으로 추출하는 `ReadTailLines` 적용.
 - 🎮 **Unity 6 & 최신 번들 버전 헤더 인식 강화:** `ReadUnityVersion` 버퍼를 16KB로 확장하고 최신 Unity 6 (6000.x / metadata v39) 지원 및 Cpp2IL / pe_slice 연동 가이드 보강.
+- 🧩 **분할 패키지(XAPK/APKS) 스마트 추출 지침:** `config.<abi>.apk` 내부 네이티브 라이브러리 추가 해제 명령을 프롬프트에 자동 주입해 에이전트 실패 방지.
+- ⌨️ **하드웨어 스캔 코드 매핑 & 적응형 전송 딜레이:** Win32 `MapVirtualKey` 기반 키 누락 차단 및 대용량 프롬프트 DOM 렌더링 동기화.
+- 🔍 **다중 에뮬레이터 포트 & Python 리버스 환경 진단:** MuMu, LDPlayer, 블루스택, WSA 포트 지원 및 `capstone`/`frida` 패키지 진단 추가.
 - 🔒 **Steam 보존 모드 자동 업데이트 방지 안내 강화:** `steamapps\appmanifest_<AppID>.acf` 파일의 `AutoUpdateBehavior 1` 설정 및 읽기 전용(`attrib +r`) 잠금 지침 추가.
 - 📦 **버전 관리 자동화:** UI 배지(`AppVersion`)와 프로젝트 속성 연동, 단일 파일 릴리즈 배포 빌드(`bat/publish.bat`) 최신화.
 
