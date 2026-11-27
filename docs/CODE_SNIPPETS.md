@@ -16,6 +16,8 @@
 11. [외부 도구 버전 확인 (타임아웃) — `RunAsync`](#11-외부-도구-버전-확인-타임아웃--runasync)
 12. [배치 스크립트 (bat · ps1) 코드 스니펫](#12-배치-스크립트-bat--ps1-코드-스니펫)
 13. [프롬프트 테스트](#13-프롬프트-테스트)
+14. [대용량 파일 역방향 버퍼링 및 파일 잠금 내성 — `ReadTailLines` & `SafeOpenRead`](#14-대용량-파일-역방향-버퍼링-및-파일-잠금-내성--readtaillines--safeopenread)
+15. [Win32 창 제어 및 하드웨어 스캔 코드 전송 — `SendPromptToWindowAsync`](#15-win32-창-제어-및-하드웨어-스캔-코드-전송--sendprompttowindowasync)
 
 ---
 
@@ -72,9 +74,9 @@ new(TargetKind.UnityIl2Cpp, "Unity IL2CPP", "⚡", "IL2CPP (메타 덤프 & 후�
 ```csharp
 private static Signature ReadSignature(string path)
 {
-    Span<byte> head = stackalloc byte[8];
-    using var fs = File.OpenRead(path);
-    var n = fs.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+    Span<byte> head = stackalloc byte[16];
+    using var fs = SafeOpenRead(path);
+    var n = fs.ReadAtLeast(head, 8, throwOnEndOfStream: false);
     if (n < 4) return Signature.Unknown;
 
     if (head[0] == 'M' && head[1] == 'Z') return Signature.Pe;
@@ -295,7 +297,7 @@ private void RegeneratePrompt(bool onlyIfUnmodified = false)
 
     if (onlyIfUnmodified && PromptText != _lastGeneratedPrompt) return;
 
-    var ctx = new PromptContext(_profile, target, WorkDirPath, _detection, ws, ToolLocator.LocateAll());
+    var ctx = new PromptContext(_profile, target, WorkDirPath, _detection, ws, ToolLocator.LocateAll(), IncludePreservationMode);
     PromptText = _lastGeneratedPrompt = PromptBuilder.Build(ctx);
 }
 ```
@@ -625,3 +627,56 @@ call rea setup --all-detected --yes
 ## 13. 프롬프트 테스트
 
 생성된 프롬프트의 명령이 실제 도구에서 동작하는지 검증한 결과와, 테스트에서 발견해 고친 버그는 [PROMPT_TEST.md](PROMPT_TEST.md)에 정리했습니다.
+
+---
+
+## 14. 대용량 파일 역방향 버퍼링 및 파일 잠금 내성 — `ReadTailLines` & `SafeOpenRead`
+
+게임이 실행 중이거나 백신·에디터가 파일을 열고 있어도 공유 잠금 충돌(`IOException`)을 방지하고, 수십 MB로 커진 `PROGRESS.md`나 작업 로그에서 전체 메모리 할당 없이 최근 20줄만 역방향 버퍼링으로 즉시 읽습니다.
+
+```csharp
+// 1. 파일 잠금 공유 위반 방지
+public static FileStream SafeOpenRead(string path) =>
+    new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+// 2. 대용량 텍스트 파일 역방향 버퍼링
+private static string? ReadTailLines(string path, int maxLines)
+{
+    using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+    if (fs.Length <= 64 * 1024)
+    {
+        // 64KB 이하 파일은 일반 스트림 순차 읽기
+    }
+    else
+    {
+        // 64KB 초과 파일은 끝 64KB만 Seek하여 마지막 N줄 분리
+        fs.Seek(-64 * 1024, SeekOrigin.End);
+        using var tailReader = new StreamReader(fs);
+        var lines = tailReader.ReadToEnd().Split('\n');
+        return string.Join(Environment.NewLine, lines.Skip(Math.Max(0, lines.Length - maxLines))).Trim();
+    }
+}
+```
+
+---
+
+## 15. Win32 창 제어 및 하드웨어 스캔 코드 전송 — `SendPromptToWindowAsync`
+
+Electron 기반의 AI 에이전트(Claude, Antigravity) 입력창에 대용량 프롬프트를 전송할 때 키 입력 누락을 방지하기 위해 `MapVirtualKey`로 하드웨어 스캔 코드를 함께 매핑하고, 텍스트 길이에 비례한 적응형 렌더링 대기 딜레이를 적용합니다.
+
+```csharp
+byte scanCtrl = (byte)MapVirtualKey(VK_CONTROL, 0);
+byte scanV = (byte)MapVirtualKey(VK_V, 0);
+keybd_event(VK_CONTROL, scanCtrl, 0, UIntPtr.Zero);
+keybd_event(VK_V, scanV, 0, UIntPtr.Zero);
+keybd_event(VK_V, scanV, KEYEVENTF_KEYUP, UIntPtr.Zero);
+keybd_event(VK_CONTROL, scanCtrl, KEYEVENTF_KEYUP, UIntPtr.Zero);
+
+// 대용량 프롬프트 DOM 렌더링 적응형 딜레이
+int pasteDelay = Math.Clamp(250 + (promptLength / 120), 250, 1000);
+await Task.Delay(pasteDelay);
+
+byte scanReturn = (byte)MapVirtualKey(VK_RETURN, 0);
+keybd_event(VK_RETURN, scanReturn, 0, UIntPtr.Zero);
+keybd_event(VK_RETURN, scanReturn, KEYEVENTF_KEYUP, UIntPtr.Zero);
+```

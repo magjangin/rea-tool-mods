@@ -21,18 +21,34 @@ public static class AgentApps
 {
     private static readonly string LocalAppData =
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    private static readonly string ProgramFiles =
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
 
     public static readonly AgentApp Claude = new(
         "Claude 앱", "🤖", "claude", "claude", "Claude",
-        Path.Combine(LocalAppData, @"Microsoft\WindowsApps\claude-desktop.exe"),
+        FindFirstExisting(
+            Path.Combine(LocalAppData, @"Microsoft\WindowsApps\claude-desktop.exe"),
+            Path.Combine(LocalAppData, @"Programs\Claude\Claude.exe"),
+            Path.Combine(ProgramFiles, @"Claude\Claude.exe")),
         OpenWorkDirOnLaunch: false);
 
     public static readonly AgentApp Antigravity = new(
         "Antigravity", "🌌", "antigravity", "Antigravity", "Antigravity",
-        Path.Combine(LocalAppData, @"Programs\Antigravity\Antigravity.exe"),
+        FindFirstExisting(
+            Path.Combine(LocalAppData, @"Programs\Antigravity\Antigravity.exe"),
+            Path.Combine(ProgramFiles, @"Antigravity\Antigravity.exe")),
         OpenWorkDirOnLaunch: true);
 
     public static IReadOnlyList<AgentApp> All { get; } = [Claude, Antigravity];
+
+    private static string? FindFirstExisting(params string[] candidates)
+    {
+        foreach (var path in candidates)
+        {
+            if (File.Exists(path)) return path;
+        }
+        return candidates.Length > 0 ? candidates[0] : null;
+    }
 }
 
 /// <summary>
@@ -58,7 +74,7 @@ public static class AgentLauncher
         var hwnd = WindowsAutomation.FindOpenWindow(app.ProcessKeyword, app.TitleKeyword);
         if (hwnd != IntPtr.Zero)
         {
-            await WindowsAutomation.SendPromptToWindowAsync(hwnd);
+            await WindowsAutomation.SendPromptToWindowAsync(hwnd, prompt.Length);
             return $"{app.Emoji} 열려 있는 {app.DisplayName}로 프롬프트를 자동 전송(붙여넣기+엔터)했습니다!";
         }
 
@@ -81,7 +97,7 @@ public static class AgentLauncher
             if (hwnd != IntPtr.Zero)
             {
                 await Task.Delay(1000); // 입력창 초기화 대기
-                await WindowsAutomation.SendPromptToWindowAsync(hwnd);
+                await WindowsAutomation.SendPromptToWindowAsync(hwnd, prompt.Length);
                 return $"{app.Emoji} {app.DisplayName}를 실행하고 프롬프트를 자동 전송했습니다!";
             }
         }

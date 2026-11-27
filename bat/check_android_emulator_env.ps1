@@ -1,9 +1,9 @@
-# [REA Tool Mods] Android emulator (Nox) environment check
+﻿# [REA Tool Mods] Android emulator (Nox) environment check
 # Checks: CPU virtualization (VT-x / AMD-V), Hyper-V family features that hold VT,
-#         Nox install + process, ADB connection and device ABI.
+#         Nox / Android emulator install + process, ADB connection and device ABI.
 # Exit code: 0 = ready, 1 = blocking problem, 2 = ready with warnings
 param(
-    [int[]]$Ports = @(62001, 62025, 62026)
+    [int[]]$Ports = @(62001, 62025, 62026, 7555, 5555, 58526)
 )
 
 $ErrorActionPreference = 'SilentlyContinue'

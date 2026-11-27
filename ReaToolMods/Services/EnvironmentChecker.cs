@@ -74,6 +74,7 @@ public static partial class EnvironmentChecker
         if (await AdbConflictCheckAsync() is { } conflict) results.Add(conflict);
         results.Add(ReaSkillCheck());
         results.Add(await Task.Run(ReaMcpCheck));
+        results.Add(await PythonEnvironmentCheckAsync());
         results.AddRange(AgentApps.All.Select(AgentAppCheck));
         if (detection != null) results.AddRange(GameChecks(detection));
 
@@ -214,18 +215,38 @@ public static partial class EnvironmentChecker
     private static EnvironmentCheck ReaMcpCheck()
     {
         const string name = "REA MCP 서버 등록";
-        const string usedBy = "Claude · Antigravity 분석 도구";
+        const string usedBy = "Claude · Antigravity · Cursor 분석 도구";
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
 
         var found = new List<string>();
         if (HasReaServer(Path.Combine(home, ".claude.json"))) found.Add("Claude Code");
         if (HasReaServer(Path.Combine(appData, "Claude", "claude_desktop_config.json"))) found.Add("Claude 앱");
+        if (HasReaServer(Path.Combine(home, ".gemini", "antigravity", "mcp_config.json")) ||
+            HasReaServer(Path.Combine(appData, "Antigravity", "mcp_config.json"))) found.Add("Antigravity");
+        if (HasReaServer(Path.Combine(home, ".cursor", "mcp.json")) ||
+            HasReaServer(Path.Combine(appData, "Cursor", "mcp.json"))) found.Add("Cursor");
 
         return found.Count > 0
             ? new EnvironmentCheck(GroupAgent, name, CheckStatus.Ok, "등록됨: " + string.Join(", ", found), usedBy)
             : new EnvironmentCheck(GroupAgent, name, CheckStatus.Warning,
                 @"설정 파일에서 찾지 못함 → bat\setup_rea_workflows.bat 실행 (플러그인으로 연결했다면 무시)", usedBy);
+    }
+
+    private static async Task<EnvironmentCheck> PythonEnvironmentCheckAsync()
+    {
+        const string name = "Python 리버스 패키지 (capstone · frida)";
+        const string usedBy = "pe_slice · il2cpp_asm · Frida 동적 후킹";
+        var python = ToolLocator.FindOnPath("python");
+        if (python == null)
+            return new EnvironmentCheck(GroupAgent, name, CheckStatus.Warning,
+                @"Python 3 미설치 → pip install capstone frida frida-tools (또는 bat\download_analysis_tools.bat)", usedBy);
+
+        var (ok, output) = await RunAsync(python, "-c \"import capstone, frida; print(f'capstone {capstone.__version__}, frida {frida.__version__}')\"");
+        return ok && !output.Contains("Error") && !output.Contains("Traceback")
+            ? new EnvironmentCheck(GroupAgent, name, CheckStatus.Ok, output.Trim(), usedBy)
+            : new EnvironmentCheck(GroupAgent, name, CheckStatus.Warning,
+                @"capstone 또는 frida 미설치 → pip install capstone frida frida-tools (또는 bat\download_analysis_tools.bat)", usedBy);
     }
 
     /// <summary>MCP 설정 JSON의 mcpServers(최상위 또는 projects.*)에 "rea" 서버가 있는지 확인</summary>

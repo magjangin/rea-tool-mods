@@ -599,6 +599,40 @@ finally
 }
 Skip("C.VM", "작업 폴더 선택 시 이전 대상 복원", "폴더 선택 대화상자(UI) 필요 — 같은 로직(LoadMetadata)은 위 재사용 테스트로 확인");
 
+// ───────── D. 내성 및 성능 최적화 검증 (Resilience & Bottlenecks) ─────────
+{
+    // 1. 파일 잠금 공유 위반 방지 검증 (타 프로세스가 쓰기 잠금 상태여도 판별 성공)
+    var lockedExe = Path.Combine(fx, "LockedGame.exe");
+    Copy(nativeExe, lockedExe);
+    using (var lockStream = new FileStream(lockedExe, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
+    {
+        var detectResult = TargetDetector.Detect(lockedExe);
+        Check("D.내성", "파일 잠금 상태(SafeOpenRead) 동시 접근 판별",
+            detectResult.Kind == TargetKind.Exe && detectResult.Warnings.Count == 0,
+            string.Join(" · ", detectResult.Evidence));
+    }
+
+    // 2. 대용량 PROGRESS.md 역방향 버퍼링 검증 (10만 바이트 / 2,000줄)
+    var largeWork = Path.Combine(work, "LargeProgressWork");
+    Directory.CreateDirectory(largeWork);
+    var progressPath = Path.Combine(largeWork, "PROGRESS.md");
+    var sbLines = new StringBuilder();
+    for (int i = 1; i <= 2000; i++) sbLines.AppendLine($"[완료] {i}단계 — 메모 내용 {i}");
+    File.WriteAllText(progressPath, sbLines.ToString());
+    var largeWs = WorkspaceInspector.Inspect(largeWork, lockedExe);
+    bool tailOk = largeWs.ProgressTail != null &&
+                  largeWs.ProgressTail.Contains("2000단계") &&
+                  largeWs.ProgressTail.Contains("1985단계") &&
+                  !largeWs.ProgressTail.Contains("1000단계"); // 끝 20줄만 포함
+    Check("D.내성", "대용량 PROGRESS.md 역방향 버퍼링 (끝 20줄 추출)", tailOk, $"tail 길이: {largeWs.ProgressTail?.Length ?? 0}");
+
+    // 3. AgentApps 동적 실행 파일 해결 검증
+    bool agentOk = AgentApps.Claude != null && AgentApps.Antigravity != null &&
+                   AgentApps.All.Count >= 2;
+    Check("D.내성", "에이전트 앱(Claude/Antigravity) 동적 후보 경로 설정", agentOk,
+        $"Claude: {AgentApps.Claude?.ExecutablePath ?? "(없음)"} | Antigravity: {AgentApps.Antigravity?.ExecutablePath ?? "(없음)"}");
+}
+
 // ───────── 결과 ─────────
 var report = new StringBuilder();
 report.AppendLine("| 영역 | 항목 | 결과 | 비고 |");

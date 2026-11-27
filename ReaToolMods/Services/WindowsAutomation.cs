@@ -42,6 +42,9 @@ public static class WindowsAutomation
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
     private const byte VK_CONTROL = 0x11;
     private const byte VK_V = 0x56;
     private const byte VK_RETURN = 0x0D;
@@ -141,8 +144,9 @@ public static class WindowsAutomation
 
     /// <summary>
     /// 열려있는 대상 앱 창으로 이동하여 프롬프트를 자동 붙여넣기(Ctrl+V)하고 엔터(Enter)를 입력하여 즉시 전송합니다.
+    /// 대용량 텍스트 입력 시 렌더러 지연을 고려해 적응형 딜레이를 적용합니다.
     /// </summary>
-    public static async Task<bool> SendPromptToWindowAsync(IntPtr hWnd)
+    public static async Task<bool> SendPromptToWindowAsync(IntPtr hWnd, int promptLength = 0)
     {
         if (hWnd == IntPtr.Zero) return false;
 
@@ -150,17 +154,22 @@ public static class WindowsAutomation
         ForceForeground(hWnd);
         await Task.Delay(350);
 
-        // 2. Ctrl + V 입력 (클립보드 붙여넣기)
-        keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-        keybd_event(VK_V, 0, 0, UIntPtr.Zero);
-        keybd_event(VK_V, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-        keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        // 2. Ctrl + V 입력 (하드웨어 스캔 코드 매핑으로 키 누락 방지)
+        byte scanCtrl = (byte)MapVirtualKey(VK_CONTROL, 0);
+        byte scanV = (byte)MapVirtualKey(VK_V, 0);
+        keybd_event(VK_CONTROL, scanCtrl, 0, UIntPtr.Zero);
+        keybd_event(VK_V, scanV, 0, UIntPtr.Zero);
+        keybd_event(VK_V, scanV, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        keybd_event(VK_CONTROL, scanCtrl, KEYEVENTF_KEYUP, UIntPtr.Zero);
 
-        await Task.Delay(250);
+        // 프롬프트 길이에 따라 적응형 딜레이 (수만 자 붙여넣기 시 Electron/DOM 렌더링 대기)
+        int pasteDelay = Math.Clamp(250 + (promptLength / 120), 250, 1000);
+        await Task.Delay(pasteDelay);
 
         // 3. Enter 입력 (전송)
-        keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero);
-        keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        byte scanReturn = (byte)MapVirtualKey(VK_RETURN, 0);
+        keybd_event(VK_RETURN, scanReturn, 0, UIntPtr.Zero);
+        keybd_event(VK_RETURN, scanReturn, KEYEVENTF_KEYUP, UIntPtr.Zero);
 
         return true;
     }
