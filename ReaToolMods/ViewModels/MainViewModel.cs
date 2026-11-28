@@ -554,6 +554,9 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     public Task SendToAntigravityAsync() => SendToAgentAsync(AgentApps.Antigravity);
 
+    [RelayCommand]
+    public Task SendToCursorAsync() => SendToAgentAsync(AgentApps.Cursor);
+
     private async Task SendToAgentAsync(AgentApp app)
     {
         if (string.IsNullOrWhiteSpace(PromptText))

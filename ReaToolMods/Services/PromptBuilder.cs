@@ -70,9 +70,12 @@ public static class PromptBuilder
             var kindName = TargetCatalog.Get(d.Kind).ShortName;
             var evidence = d.Evidence.Count > 0 ? " — " + string.Join(" · ", d.Evidence) : "";
             sb.AppendLine($"- 자동 판별: {kindName}{evidence}");
+            if (d.Engine != null) sb.AppendLine($"- 게임 엔진: {d.Engine}{(d.UnrealVersion != null ? $" ({d.UnrealVersion})" : "")}");
             if (d.UnityVersion != null) sb.AppendLine($"- Unity 버전: {d.UnityVersion}");
             if (d.Backend != null) sb.AppendLine($"- 스크립팅 백엔드: {d.Backend}");
             if (d.GameRoot != null) sb.AppendLine($"- 게임 루트: {d.GameRoot}");
+            if (d.HasSteamApi) sb.AppendLine($"- Steam 연동: 감지됨{(d.SteamAppId != null ? $" (AppID: {d.SteamAppId})" : "")}");
+            if (d.AntiCheat != null) sb.AppendLine($"- 안티치트: {d.AntiCheat}");
             if (d.ModLoaders.Count > 0) sb.AppendLine($"- 설치된 모드 로더: {string.Join(", ", d.ModLoaders)}");
             foreach (var w in d.Warnings) sb.AppendLine($"- ⚠️ {w}");
         }
@@ -102,6 +105,36 @@ public static class PromptBuilder
 
         var more = ws.TotalEntries > ws.Entries.Count ? $" 외 {ws.TotalEntries - ws.Entries.Count}개" : "";
         sb.AppendLine($"- **이미 작업하던 폴더입니다.** 기존 항목: {string.Join(", ", ws.Entries)}{more}");
+
+        if (ws.Artifacts != null)
+        {
+            var artLines = new List<string>();
+            var a = ws.Artifacts;
+            if (a.HasIl2CppDump)
+            {
+                var dumpInfo = new List<string>();
+                if (a.DumpCsSize != null) dumpInfo.Add($"dump.cs ({a.DumpCsSize})");
+                if (a.ScriptJsonSize != null) dumpInfo.Add($"script.json ({a.ScriptJsonSize})");
+                if (a.DummyDllCount > 0) dumpInfo.Add($"DummyDll ({a.DummyDllCount}개 DLL)");
+                artLines.Add($"`il2cpp_dump\\` ({string.Join(", ", dumpInfo)})");
+            }
+            if (a.HasCpp2IlOut) artLines.Add("`cpp2il_out\\` (Cpp2IL 어셈블리 복원 완료)");
+            if (a.Slices.Count > 0) artLines.Add($"`slices\\` ({string.Join(", ", a.Slices.Take(6))}{(a.Slices.Count > 6 ? $" 외 {a.Slices.Count - 6}개" : "")})");
+            if (a.HasSrc) artLines.Add("`src\\` (C# 소스코드 디컴파일)");
+            if (a.HasJadxSrc) artLines.Add("`jadx_src\\` (Android Java 소스 디컴파일)");
+            if (a.HasApktoolOut) artLines.Add("`apktool_out\\` (Smali 및 리소스 디코드)");
+            if (a.HasModProject) artLines.Add("`mod\\` (모드/플러그인 프로젝트 파일)");
+            if (a.Docs.Count > 0) artLines.Add($"`docs\\` ({string.Join(", ", a.Docs)})");
+            if (a.HasArchive) artLines.Add("`archive\\` (원본/에셋/응답 스냅샷 보존)");
+
+            if (artLines.Count > 0)
+            {
+                sb.AppendLine("- **📦 이미 확보된 핵심 산출물 (불필요한 중복 재생성 및 `ls/dir` 반복 금지)**:");
+                foreach (var line in artLines) sb.AppendLine($"  - {line}");
+                sb.AppendLine("  👉 위 산출물은 이미 준비되어 있으니 다시 덤프하거나 디렉터리 목록 조회를 반복하지 말고, 바로 다음 분석·후킹 단계로 진입해줘.");
+            }
+        }
+
         sb.AppendLine("- 처음부터 다시 하지 말고 **기존 작업에 이어서** 진행해줘:");
 
         var progressName = ws.ProgressFile != null ? Path.GetFileName(ws.ProgressFile) : null;
@@ -266,6 +299,43 @@ public static class PromptBuilder
     private static string ExeSteps(PromptContext ctx)
     {
         var w = ctx.WorkDir;
+        var d = Matching(ctx);
+
+        if (d?.Engine == "UnrealEngine")
+        {
+            var ver = d.UnrealVersion ?? "UE4/UE5";
+            var root = d.GameRoot ?? "<게임 루트>";
+            return $"""
+                1. 언리얼 엔진({ver}) 바이너리 및 에셋 구조 분석
+                   - 대상: `{Target(ctx)}` (엔진: {ver}, 루트: `{root}`)
+                   - 대상 PE가 10MB가 넘는 x64 Shipping 바이너리면 통째로 REA로 열지 말고, 핵심 함수 RVA를 찾아 조각 PE로 분석해줘:
+                     `{Tool(ctx, ToolId.PeSlice)} --dll "{Target(ctx)}" --rva <함수 RVA> --out "{w}\slices\sub_<RVA>.dll"`
+                   - REA(`procedure_pseudo_code`)로 의사코드를 확인해 FName, GWorld, GObjects 테이블 위치나 초기화 루틴을 '{w}\docs\analysis.md'에 정리해줘.
+                   - Paks 또는 IoStore(.utoc/.ucas) 컨테이너 내 주요 에셋(블루프린트, 테이블, 오디오, 맵) 구조를 파악해줘.
+                2. UE4SS (Unreal Engine Scripting System) 모드 스켈레톤 작성
+                   - 언리얼 엔진 게임은 직접 바이너리를 패치하기보다 UE4SS(프록시: dwmapi.dll / dxgi.dll)를 통한 UObject / Blueprint 함수 훅이 가장 안전해.
+                   - '{w}\mod'에 UE4SS 기반 모드 스켈레톤(Lua 스크립트 또는 C++ DLL)을 구성해줘:
+                     - `Mods\<모드명>\scripts\main.lua`: `RegisterHook`, `StaticFindObject`, UFunction 후킹 예시 코드 작성
+                     - `Mods\<모드명>\enabled.txt`: 활성화 플래그
+                   - 필요 시 ReShade 패스스루 셰이더 또는 UEVR 연동 지점을 '{w}\docs\hooks.md'에 정리해줘.
+                3. 실행 검증
+                   - 게임 실행 후 `{root}\Binaries\Win64\UE4SS.log`(또는 대상 폴더) 로그를 확인해 모드가 정상 로드되고 훅이 걸렸는지 검증해줘.
+                """;
+        }
+
+        if (d?.Engine == "Godot")
+        {
+            return $"""
+                1. Godot PCK 리소스 언팩 및 GDScript 디컴파일
+                   - 대상: `{Target(ctx)}`
+                   - GDRE tools 또는 gdsdecomp 도구로 exe 옆의 `*.pck` 리소스와 컴파일된 `.gdc` / `.gde` 스크립트를 '{w}\extracted_pck'에 복원해줘.
+                2. 게임 로직 분석 및 후킹 포인트 도출
+                   - 메인 씬(`project.godot`의 `run/main_scene`), 플레이어 및 게임 매니저 스크립트를 파악해 '{w}\docs\analysis.md'에 정리해줘.
+                3. 모드 스켈레톤 및 오버라이드 검증
+                   - Godot의 PCK 패치 우선순위(Override PCK) 방식을 이용해 수정한 스크립트/에셋을 새 PCK로 패키징하거나 로컬 로더를 구성해줘.
+                """;
+        }
+
         return $"""
             1. 정적 분석 및 의사코드 덤프
                - REA(open_binary → binary_overview → list_procedures / procedure_pseudo_code)로 Import/Export, 문자열, 엔트리포인트를 정리해 '{w}\decompiled'에 저장해줘.

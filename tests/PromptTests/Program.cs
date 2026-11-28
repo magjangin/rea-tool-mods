@@ -628,9 +628,83 @@ Skip("C.VM", "작업 폴더 선택 시 이전 대상 복원", "폴더 선택 대
 
     // 3. AgentApps 동적 실행 파일 해결 검증
     bool agentOk = AgentApps.Claude != null && AgentApps.Antigravity != null &&
-                   AgentApps.All.Count >= 2;
-    Check("D.내성", "에이전트 앱(Claude/Antigravity) 동적 후보 경로 설정", agentOk,
-        $"Claude: {AgentApps.Claude?.ExecutablePath ?? "(없음)"} | Antigravity: {AgentApps.Antigravity?.ExecutablePath ?? "(없음)"}");
+                   AgentApps.Cursor != null && AgentApps.VSCode != null &&
+                   AgentApps.All.Count >= 4;
+    Check("D.내성", "에이전트 앱(Claude/Antigravity/Cursor/VSCode) 동적 후보 경로 설정", agentOk,
+        $"Claude: {AgentApps.Claude?.ExecutablePath ?? "(없음)"} | Antigravity: {AgentApps.Antigravity?.ExecutablePath ?? "(없음)"} | Cursor: {AgentApps.Cursor?.ExecutablePath ?? "(없음)"}");
+
+    // 4. Unreal Engine 게임 프로젝트 구조 및 UE4SS 모드 로더 감지 검증
+    var ueRoot = Path.Combine(fx, "FakeUnrealGame");
+    var ueEngine = Path.Combine(ueRoot, "Engine", "Binaries", "Win64");
+    var ueBin = Path.Combine(ueRoot, "FakeGame", "Binaries", "Win64");
+    var uePaks = Path.Combine(ueRoot, "FakeGame", "Content", "Paks");
+    Directory.CreateDirectory(ueEngine);
+    Directory.CreateDirectory(ueBin);
+    Directory.CreateDirectory(uePaks);
+    File.WriteAllText(Path.Combine(uePaks, "FakeGame-Windows.pak"), "PAK_DATA");
+    File.WriteAllText(Path.Combine(uePaks, "FakeGame-Windows.utoc"), "UTOC_DATA"); // IoStore -> UE5
+    var ueExe = Path.Combine(ueBin, "FakeGame-Win64-Shipping.exe");
+    Copy(nativeExe, ueExe);
+    File.WriteAllText(Path.Combine(ueBin, "ue4ss.dll"), "UE4SS_DLL");
+    File.WriteAllText(Path.Combine(ueBin, "dwmapi.dll"), "PROXY_DLL");
+    File.WriteAllText(Path.Combine(ueBin, "UE4SS-settings.ini"), "[Settings]");
+
+    var ueDetect = TargetDetector.Detect(ueExe);
+    bool ueOk = ueDetect.Kind == TargetKind.Exe &&
+                ueDetect.Engine == "UnrealEngine" &&
+                ueDetect.UnrealVersion == "UE5" &&
+                ueDetect.ModLoaders.Any(m => m.Contains("UE4SS"));
+    Check("D.내성", "Unreal Engine(UE5) 및 UE4SS 모드 로더 감지", ueOk,
+        $"Engine: {ueDetect.Engine} ({ueDetect.UnrealVersion}), Loaders: {string.Join(", ", ueDetect.ModLoaders)}");
+
+    // 5. Steam API 및 안티치트(Easy Anti-Cheat) 감지 검증
+    File.WriteAllText(Path.Combine(ueBin, "steam_api64.dll"), "STEAM_API");
+    File.WriteAllText(Path.Combine(ueBin, "steam_appid.txt"), "1234560");
+    Directory.CreateDirectory(Path.Combine(ueBin, "EasyAntiCheat"));
+    var steamDetect = TargetDetector.Detect(ueExe);
+    bool steamOk = steamDetect.HasSteamApi &&
+                   steamDetect.SteamAppId == "1234560" &&
+                   steamDetect.AntiCheat == "EasyAntiCheat";
+    Check("D.내성", "Steam API 런타임, AppID, Easy Anti-Cheat 감지", steamOk,
+        $"Steam: {steamDetect.HasSteamApi} (ID: {steamDetect.SteamAppId}), AntiCheat: {steamDetect.AntiCheat}");
+
+    // 6. WorkspaceInspector 산출물 인벤토리(Artifact Inventory) 스캔 검증
+    var artWork = Path.Combine(work, "ArtifactTestWork");
+    var dumpDir = Path.Combine(artWork, "il2cpp_dump");
+    var slicesDir = Path.Combine(artWork, "slices");
+    var docsDir = Path.Combine(artWork, "docs");
+    Directory.CreateDirectory(dumpDir);
+    Directory.CreateDirectory(slicesDir);
+    Directory.CreateDirectory(docsDir);
+    File.WriteAllText(Path.Combine(dumpDir, "dump.cs"), new string('A', 5000));
+    File.WriteAllText(Path.Combine(dumpDir, "script.json"), new string('B', 3000));
+    File.WriteAllText(Path.Combine(slicesDir, "PlayerController.dll"), "SLICE");
+    File.WriteAllText(Path.Combine(slicesDir, "GameManager.dll"), "SLICE");
+    File.WriteAllText(Path.Combine(docsDir, "analysis.md"), "# Analysis");
+
+    var artifacts = WorkspaceInspector.ScanArtifacts(artWork);
+    bool artOk = artifacts.HasIl2CppDump &&
+                 artifacts.DumpCsSize != null &&
+                 artifacts.Slices.Count == 2 &&
+                 artifacts.Docs.Contains("analysis.md");
+    Check("D.내성", "작업 폴더 산출물 인벤토리(Artifact Inventory) 스캔", artOk,
+        $"dump.cs: {artifacts.DumpCsSize}, Slices: {string.Join(", ", artifacts.Slices)}, Docs: {string.Join(", ", artifacts.Docs)}");
+
+    // 7. PromptBuilder에 언리얼 엔진 및 산출물 인벤토리 지침 주입 검증
+    var promptCtx = new PromptContext(
+        TargetCatalog.Get(TargetKind.Exe),
+        ueExe,
+        artWork,
+        ueDetect,
+        new WorkspaceState(true, ["il2cpp_dump\\", "slices\\", "docs\\"], 3, null, null, null, false, false, artifacts),
+        ToolLocator.LocateAll());
+    var generatedPrompt = PromptBuilder.Build(promptCtx);
+    bool promptOk = generatedPrompt.Contains("Unreal Engine") &&
+                    generatedPrompt.Contains("UE4SS") &&
+                    generatedPrompt.Contains("📦 이미 확보된 핵심 산출물") &&
+                    generatedPrompt.Contains("PlayerController.dll");
+    Check("D.내성", "PromptBuilder 언리얼 엔진 지침 및 산출물 인벤토리 프롬프트 주입", promptOk,
+        $"언리얼/산출물 키워드 포함 확인 (길이: {generatedPrompt.Length}자)");
 }
 
 // ───────── 결과 ─────────

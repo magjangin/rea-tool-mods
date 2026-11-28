@@ -39,7 +39,20 @@ public static class AgentApps
             Path.Combine(ProgramFiles, @"Antigravity\Antigravity.exe")),
         OpenWorkDirOnLaunch: true);
 
-    public static IReadOnlyList<AgentApp> All { get; } = [Claude, Antigravity];
+    public static readonly AgentApp Cursor = new(
+        "Cursor", "⚡", "cursor", "cursor", "Cursor",
+        FindFirstExisting(
+            Path.Combine(LocalAppData, @"Programs\cursor\Cursor.exe")),
+        OpenWorkDirOnLaunch: true);
+
+    public static readonly AgentApp VSCode = new(
+        "VS Code", "💻", "vscode", "code", "Visual Studio Code",
+        FindFirstExisting(
+            Path.Combine(LocalAppData, @"Programs\Microsoft VS Code\Code.exe"),
+            Path.Combine(ProgramFiles, @"Microsoft VS Code\Code.exe")),
+        OpenWorkDirOnLaunch: true);
+
+    public static IReadOnlyList<AgentApp> All { get; } = [Claude, Antigravity, Cursor, VSCode];
 
     private static string? FindFirstExisting(params string[] candidates)
     {

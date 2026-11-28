@@ -3,7 +3,7 @@
 > **Reverse Engineer Anything (REA) & Game Modding Workflow Helper**  
 > Avalonia UI (.NET 10) 기반의 8종 타겟(EXE · DLL · APK · APP + Unity IL2CPP · Mono · APK · APP) 분석 및 AI 에이전트 연동 도우미
 
-[![Version](https://img.shields.io/badge/version-1.5.0-blue?style=flat-square)](https://github.com/magjangin/rea-tool-mods/releases)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue?style=flat-square)](https://github.com/magjangin/rea-tool-mods/releases)
 [![.NET Version](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Avalonia UI](https://img.shields.io/badge/Avalonia-12.1.3-9A4993?style=flat-square&logo=avalonia&logoColor=white)](https://avaloniaui.net/)
 [![REA Compatibility](https://img.shields.io/badge/REA-Compatible-1F6FEB?style=flat-square)](https://github.com/morluto/rea)
@@ -58,15 +58,19 @@
 ### 2. 🔎 파일 내용 기반 자동 판별 + 드래그 앤 드롭 (Drag & Drop)
 윈도우 탐색기에서 분석할 파일이나 작업 폴더를 **앱 화면으로 바로 끌어다 놓으면(Drag & Drop)** 즉시 타겟을 자동 판별합니다.
 확장자만 보지 않고 **파일 시그니처 · 주변 폴더 구조 · 압축 엔트리**를 확인합니다 (`Services/TargetDetector.cs`).
-- `Game.exe` 옆에 `GameAssembly.dll` / `Game_Data\il2cpp_data\Metadata\global-metadata.dat` → **Unity IL2CPP** (메타데이터 버전 표시)
+- `Game.exe` 옆에 `GameAssembly.dll` / `Game_Data\il2cpp_data\Metadata\global-metadata.dat` → **Unity IL2CPP** (메타데이터 버전 및 Unity 6 v31~v39 분기 표시)
 - `Game_Data\Managed\Assembly-CSharp.dll` → **Unity Mono**
-- `.apk` / `.xapk` / `.apks` / `.aab` 안에 `lib/<abi>/libil2cpp.so` · `libunity.so` → **Unity APK** (ABI, 분할 패키지 여부 표시)
+- `.apk` / `.xapk` / `.apks` / `.aab` 안에 `lib/<abi>/libil2cpp.so` · `libunity.so` → **Unity APK** (ABI, 분할 패키지 여부 표시 및 `config.<abi>.apk` 압축 해제 명령 안내)
 - `.exe` 옆에 `resources\app.asar` → **APP(Electron)**, .NET 관리 어셈블리 EXE → **DLL**
-- Unity 버전(UnityPlayer.dll / globalgamemanagers), 설치된 **BepInEx · MelonLoader** 버전과 플러그인 수도 함께 표시
-- 선택한 타겟 버튼과 파일이 맞지 않거나(예: Unity APK에 `.exe`), 확장자와 실제 시그니처가 다르거나(예: PE를 `.apk`로 저장), `global-metadata.dat`가 비표준(암호화/보호) 헤더면 **경고**를 표시합니다.
+- **Unreal Engine 4 & 5 (UE4/UE5)**: `<Game>-Win64-Shipping.exe`, `Engine/Binaries/Win64`, `Content\Paks` 또는 IoStore ZenLoader(`.utoc`/`.ucas`) 자동 판별 및 `ue4ss.dll`, `dwmapi.dll` 프록시, `UE4SS-settings.ini` 감지 → UE4SS / REA 슬라이스 가이드 자동 생성
+- **Godot 엔진**: `*.pck` 파일 또는 내장 PCK 감지 → GDRE tools / gdsdecomp 가이드 안내
+- **Steam API 연동 & 안티치트 감지**: `steam_api64.dll`, `steam_appid.txt`, `EasyAntiCheat`, `BattlEye` 감지 → 오프라인 보존 모딩 및 바이패스 필요성 자동 경고
+- Unity 버전(UnityPlayer.dll / globalgamemanagers), 설치된 **BepInEx · MelonLoader · UE4SS** 버전과 플러그인 수도 함께 표시
+- 선택한 타겟 버튼과 파일이 맞지 않거나, 확장자와 실제 시그니처가 다르거나, `global-metadata.dat`가 비표준(암호화/보호) 헤더면 **경고**를 표시합니다.
 
-### 3. ♻️ 기존 작업 폴더 이어하기
+### 3. ♻️ 기존 작업 폴더 이어하기 + 산출물 인벤토리 (Artifact Inventory)
 - 작업 폴더가 이미 있고 산출물이 있으면, 프롬프트가 **"PROGRESS.md를 먼저 읽고 끝난 단계는 건너뛰고 이어서 진행"** 모드로 생성됩니다 (최근 기록 20줄 포함).
+- **📦 이미 확보된 핵심 산출물 사전 인덱싱**: 작업 폴더를 스캔하여 `il2cpp_dump\` (`dump.cs`, `script.json` 크기, `DummyDll` 개수), `cpp2il_out\`, `slices\` (조각 PE 목록), 디컴파일 C#/Java 소스, `mod\` 프로젝트, `docs\` 문서 목록을 프롬프트 상단에 직접 명시합니다. 에이전트가 폴더 목록 조회를 위해 터미널에서 `ls`/`dir`를 반복 호출하는 **수천 토큰 및 턴 낭비를 원천 차단**합니다.
 - 기존 산출물은 덮어쓰지 않고 `src_v2`처럼 새 폴더로 출력하도록 지시합니다.
 - 전송 시 `.reatool/workspace.json`(대상 경로 · 크기 · 수정 시각)을 남겨, 다음 번에 **대상 파일이 바뀌었으면 버전 비교부터** 하도록, **다른 대상의 폴더면 멈추고 확인**하도록 알려 줍니다.
 - 접미사가 바뀌어도(예: 예전에 `-windows`로 만든 Unity 게임 폴더) 같은 대상을 다루던 `<이름>-*` 폴더를 찾아 이어서 사용합니다.
@@ -196,6 +200,15 @@ rea-tool-mods/
 ---
 
 ## 📝 릴리즈 노트 (Release Notes)
+
+### v1.6.0 (2026-11)
+- 🎮 **Unreal Engine 4 & 5 (UE4/UE5) 프로젝트 및 UE4SS 모드 로더 자동 감지:** `<Game>-Win64-Shipping.exe`, `Engine/Binaries/Win64`, `Content\Paks` 또는 IoStore ZenLoader(`.utoc`/`.ucas`)를 감지하고, `ue4ss.dll`, `dwmapi.dll` 프록시 및 `UE4SS-settings.ini` 설정을 식별하여 언리얼 전용 모딩 가이드 및 `pe_slice` 연계 프롬프트를 자동 생성.
+- 📦 **작업 폴더 산출물 인벤토리 (Artifact Inventory) 사전 인덱싱:** 기존 작업 폴더 이어하기 시 `dump.cs` 크기, `script.json` 크기, `DummyDll` 개수, `slices/*.dll` 목록, C# 및 Java 디컴파일 결과, `mod/` 프로젝트, `docs/` 문서를 자동 스캔하여 프롬프트 상단에 주입. 에이전트의 불필요한 `ls/dir` 반복 탐색 및 중복 덤프로 인한 수천 토큰/턴 낭비를 원천 차단.
+- 🔒 **Steam API 런타임, AppID, 안티치트(Easy Anti-Cheat, BattlEye) 솔루션 감지:** `steam_api64.dll`, `steam_appid.txt`, `EasyAntiCheat`, `BattlEye`를 탐지하여 오프라인 보존 모딩 및 바이패스 필요성을 프롬프트에 자동 경고.
+- 🧩 **Godot 엔진 감지 및 PCK 언팩 워크플로우:** `*.pck` 파일 및 내장 PCK를 식별하여 GDRE tools / gdsdecomp 연계 안내 제공.
+- 🪟 **Win32 전면 창 전환(ForceForeground) 및 클립보드 내성 극대화:** Alt 더미 키 이벤트 전송으로 Windows Foreground Lock Timeout 권한을 획득하고, 최소화(`IsIconic`) 상태 창을 복원하며, 클립보드 잠금 경합 시 최대 3회 지수 백오프 재시도 적용.
+- ⚡ **Cursor 및 VS Code 에이전트 원클릭 연동 지원:** `AgentApps`에 Cursor 및 VS Code를 추가하여 프롬프트 원클릭 복사/전송 지원.
+- 🧪 **내성 및 신규 엔진 회귀 테스트 확장:** Unreal Engine, Steam/EAC, Artifact Inventory, PromptBuilder 지침을 검증하는 96개 테스트 전원 통과 (0 fail).
 
 ### v1.5.0 (2026-11)
 - 🖱️ **파일 & 작업 폴더 드래그 앤 드롭 (Drag & Drop):** 탐색기에서 실행 파일, DLL, APK, ASAR 또는 작업 폴더를 앱 창으로 끌어다 놓으면 즉시 분석/바인딩.

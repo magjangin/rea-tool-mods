@@ -17,6 +17,21 @@ public sealed record WorkspaceMetadata(
     DateTime CreatedAt,
     DateTime UpdatedAt);
 
+/// <summary>작업 폴더 내 이미 생성된 주요 산출물 정보 (불필요한 반복 덤프/디컴파일 및 ls 탐색 방지)</summary>
+public sealed record WorkspaceArtifacts(
+    bool HasIl2CppDump,
+    string? DumpCsSize,
+    string? ScriptJsonSize,
+    int DummyDllCount,
+    bool HasCpp2IlOut,
+    IReadOnlyList<string> Slices,
+    bool HasSrc,
+    bool HasJadxSrc,
+    bool HasApktoolOut,
+    bool HasModProject,
+    IReadOnlyList<string> Docs,
+    bool HasArchive);
+
 /// <summary>이미 있는 작업 폴더의 상태 (이어서 작업할 때 프롬프트에 반영)</summary>
 public sealed record WorkspaceState(
     bool Exists,
@@ -26,11 +41,12 @@ public sealed record WorkspaceState(
     string? ProgressTail,
     WorkspaceMetadata? Metadata,
     bool TargetChanged,
-    bool TargetDiffers)
+    bool TargetDiffers,
+    WorkspaceArtifacts? Artifacts = null)
 {
     public bool HasContent => TotalEntries > 0;
 
-    public static readonly WorkspaceState Missing = new(false, [], 0, null, null, null, false, false);
+    public static readonly WorkspaceState Missing = new(false, [], 0, null, null, null, false, false, null);
 }
 
 public static class WorkspaceInspector
@@ -90,7 +106,98 @@ public static class WorkspaceInspector
             catch { }
         }
 
-        return new WorkspaceState(true, entries, all.Count, progressFile, tail, meta, changed, differs);
+        var artifacts = ScanArtifacts(workDir);
+
+        return new WorkspaceState(true, entries, all.Count, progressFile, tail, meta, changed, differs, artifacts);
+    }
+
+    /// <summary>
+    /// 작업 디렉터리를 스캔하여 이미 생성된 주요 산출물 현황을 파악합니다.
+    /// </summary>
+    public static WorkspaceArtifacts ScanArtifacts(string workDir)
+    {
+        if (string.IsNullOrWhiteSpace(workDir) || !Directory.Exists(workDir))
+        {
+            return new WorkspaceArtifacts(false, null, null, 0, false, [], false, false, false, false, [], false);
+        }
+
+        var dumpDir = Path.Combine(workDir, "il2cpp_dump");
+        var hasIl2CppDump = Directory.Exists(dumpDir);
+        string? dumpCsSize = null;
+        string? scriptJsonSize = null;
+        var dummyDllCount = 0;
+
+        if (hasIl2CppDump)
+        {
+            var dumpCs = Path.Combine(dumpDir, "dump.cs");
+            if (File.Exists(dumpCs))
+            {
+                var len = new FileInfo(dumpCs).Length;
+                dumpCsSize = FormatFileSize(len);
+            }
+
+            var scriptJson = Path.Combine(dumpDir, "script.json");
+            if (File.Exists(scriptJson))
+            {
+                var len = new FileInfo(scriptJson).Length;
+                scriptJsonSize = FormatFileSize(len);
+            }
+
+            var dummyDir = Path.Combine(dumpDir, "DummyDll");
+            if (Directory.Exists(dummyDir))
+            {
+                dummyDllCount = Directory.EnumerateFiles(dummyDir, "*.dll").Count();
+            }
+        }
+
+        var hasCpp2IlOut = Directory.Exists(Path.Combine(workDir, "cpp2il_out"));
+
+        var slicesDir = Path.Combine(workDir, "slices");
+        var slices = Directory.Exists(slicesDir)
+            ? Directory.EnumerateFiles(slicesDir, "*.dll").Select(Path.GetFileName).Where(n => n != null).Cast<string>().ToList()
+            : (IReadOnlyList<string>)[];
+
+        var hasSrc = Directory.Exists(Path.Combine(workDir, "src"));
+        var hasJadxSrc = Directory.Exists(Path.Combine(workDir, "jadx_src"));
+        var hasApktoolOut = Directory.Exists(Path.Combine(workDir, "apktool_out"));
+
+        var modDir = Path.Combine(workDir, "mod");
+        var hasModProject = Directory.Exists(modDir) && (
+            Directory.EnumerateFiles(modDir, "*.*proj").Any() ||
+            File.Exists(Path.Combine(modDir, "mod.js")) ||
+            File.Exists(Path.Combine(modDir, "package.json")));
+
+        var docsDir = Path.Combine(workDir, "docs");
+        var docs = Directory.Exists(docsDir)
+            ? Directory.EnumerateFiles(docsDir, "*.md").Select(Path.GetFileName).Where(n => n != null).Cast<string>().ToList()
+            : (IReadOnlyList<string>)[];
+
+        var hasArchive = Directory.Exists(Path.Combine(workDir, "archive"));
+
+        return new WorkspaceArtifacts(
+            hasIl2CppDump,
+            dumpCsSize,
+            scriptJsonSize,
+            dummyDllCount,
+            hasCpp2IlOut,
+            slices,
+            hasSrc,
+            hasJadxSrc,
+            hasApktoolOut,
+            hasModProject,
+            docs,
+            hasArchive);
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        return bytes switch
+        {
+            >= 1024 * 1024 * 1024 => $"{(double)bytes / (1024 * 1024 * 1024):F1} GB",
+            >= 1024 * 1024 => $"{(double)bytes / (1024 * 1024):F1} MB",
+            >= 1024 => $"{(double)bytes / 1024:F1} KB",
+            _ => $"{bytes} B"
+        };
     }
 
     public static WorkspaceMetadata? LoadMetadata(string workDir)

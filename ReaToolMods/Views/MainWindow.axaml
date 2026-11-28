@@ -287,10 +287,18 @@
                                     </StackPanel>
                                 </Button>
                                 <Button Command="{Binding SendToAntigravityCommand}" 
-                                        Padding="20,10" CornerRadius="6" Cursor="Hand">
+                                        Padding="18,10" CornerRadius="6" Cursor="Hand">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <TextBlock Text="🌌" FontSize="15" />
-                                        <TextBlock Text="안티그래비티에 보내기" FontWeight="Bold" FontSize="13" />
+                                        <TextBlock Text="Antigravity에 보내기" FontWeight="Bold" FontSize="13" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Command="{Binding SendToCursorCommand}" 
+                                        ToolTip.Tip="열려 있는 Cursor 창으로 프롬프트를 전송합니다"
+                                        Padding="16,10" CornerRadius="6" Cursor="Hand">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="⚡" FontSize="15" />
+                                        <TextBlock Text="Cursor" FontWeight="Bold" FontSize="13" />
                                     </StackPanel>
                                 </Button>
                             </StackPanel>

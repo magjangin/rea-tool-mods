@@ -27,6 +27,21 @@ public sealed class DetectionResult
     /// <summary>"IL2CPP" / "Mono" / null(미확정)</summary>
     public string? Backend { get; set; }
 
+    /// <summary>"Unity" / "UnrealEngine" / "Godot" / "Electron" / null</summary>
+    public string? Engine { get; set; }
+
+    /// <summary>"UE4" / "UE5" / null</summary>
+    public string? UnrealVersion { get; set; }
+
+    /// <summary>Steam API 연동 여부</summary>
+    public bool HasSteamApi { get; set; }
+
+    /// <summary>Steam AppID (steam_appid.txt 등에서 파싱)</summary>
+    public string? SteamAppId { get; set; }
+
+    /// <summary>감지된 안티치트 솔루션 (EAC, BattlEye 등)</summary>
+    public string? AntiCheat { get; set; }
+
     public string? AsarPath { get; set; }
     public bool IsSplitPackage { get; set; }
     public List<string> Abis { get; } = [];

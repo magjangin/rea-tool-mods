@@ -210,14 +210,32 @@ public static partial class TargetDetector
         var dir = Path.GetDirectoryName(path)!;
         var dataDir = FindUnityDataDir(dir, Path.GetFileNameWithoutExtension(path));
 
-        if (dataDir != null && InspectUnityWindows(dir, dataDir, r)) return;
+        if (dataDir != null && InspectUnityWindows(dir, dataDir, r))
+        {
+            InspectSteamAndProtections(dir, r);
+            return;
+        }
+
+        if (InspectUnrealWindows(dir, path, r))
+        {
+            InspectSteamAndProtections(dir, r);
+            return;
+        }
+
+        if (InspectGodotWindows(dir, path, r))
+        {
+            InspectSteamAndProtections(dir, r);
+            return;
+        }
 
         var asar = Path.Combine(dir, "resources", "app.asar");
         if (File.Exists(asar))
         {
             r.Kind = TargetKind.App;
+            r.Engine = "Electron";
             r.AsarPath = asar;
             r.Evidence.Add(@"resources\app.asar 발견 — Electron 앱");
+            InspectSteamAndProtections(dir, r);
             return;
         }
 
@@ -232,6 +250,8 @@ public static partial class TargetDetector
             r.Kind = TargetKind.Exe;
             r.Evidence.Add($"네이티브 PE 실행 파일 ({machine})");
         }
+
+        InspectSteamAndProtections(dir, r);
     }
 
     private static void DetectDll(string path, DetectionResult r)
@@ -458,9 +478,22 @@ public static partial class TargetDetector
         if (File.Exists(player))
         {
             var info = FileVersionInfo.GetVersionInfo(player);
-            var m = UnityVersionRegex().Match(info.ProductVersion ?? "");
+            var m = UnityVersionRegex().Match(info.ProductVersion ?? info.FileVersion ?? "");
             if (m.Success) return m.Groups[1].Value;
         }
+
+        // exe 자체 버전 리소스에서도 검사
+        try
+        {
+            var exe = Directory.EnumerateFiles(root, "*.exe").FirstOrDefault();
+            if (exe != null)
+            {
+                var info = FileVersionInfo.GetVersionInfo(exe);
+                var m = UnityVersionRegex().Match(info.ProductVersion ?? info.FileVersion ?? "");
+                if (m.Success) return m.Groups[1].Value;
+            }
+        }
+        catch { }
 
         foreach (var name in new[] { "globalgamemanagers", "data.unity3d", "mainData" })
         {
@@ -469,6 +502,175 @@ public static partial class TargetDetector
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Unreal Engine 4/5 게임 구조(Engine/, Binaries/Win64, Content/Paks, UE4SS)를 검사합니다.
+    /// </summary>
+    private static bool InspectUnrealWindows(string dir, string exePath, DetectionResult r)
+    {
+        // 1) 대상 exe가 Shipping.exe(예: <Game>/Binaries/Win64/<Game>-Win64-Shipping.exe)인 경우
+        //    또는 루트의 런처 exe인 경우 모두 지원하도록 루트와 바이너리 디렉터리 판별
+        string? root = null;
+        string? paksDir = null;
+
+        if (Directory.Exists(Path.Combine(dir, "Engine")) && Directory.EnumerateDirectories(dir).Any(d => Directory.Exists(Path.Combine(d, "Content", "Paks"))))
+        {
+            root = dir;
+        }
+        else
+        {
+            // 상위 디렉터리 역추적 (<Game>/Binaries/Win64 구조 고려해 최대 5단계까지 역추적)
+            var cur = new DirectoryInfo(dir);
+            for (int i = 0; i < 5 && cur != null; i++)
+            {
+                if (Directory.Exists(Path.Combine(cur.FullName, "Engine")))
+                {
+                    root = cur.FullName;
+                    break;
+                }
+                cur = cur.Parent;
+            }
+        }
+
+        if (root == null)
+        {
+            // Engine 폴더가 없더라도 Content\Paks 폴더나 *.pak 파일이 있는지 확인
+            var contentDir = Path.Combine(dir, "Content", "Paks");
+            if (Directory.Exists(contentDir) || Directory.EnumerateFiles(dir, "*.pak").Any())
+            {
+                root = dir;
+                paksDir = Directory.Exists(contentDir) ? contentDir : dir;
+            }
+            else
+            {
+                // exe FileVersionInfo에 Unreal/Epic 흔적이 있는지 검사
+                try
+                {
+                    var info = FileVersionInfo.GetVersionInfo(exePath);
+                    var desc = $"{info.FileDescription} {info.CompanyName} {info.ProductName}";
+                    if (desc.Contains("Unreal", StringComparison.OrdinalIgnoreCase) || desc.Contains("Epic Games", StringComparison.OrdinalIgnoreCase))
+                    {
+                        root = dir;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        if (root == null) return false;
+
+        r.Kind = TargetKind.Exe;
+        r.Engine = "UnrealEngine";
+        r.GameRoot = root;
+
+        // UE4 vs UE5 및 패키징 형식 판별 (.utoc/.ucas = IoStore ZenLoader, UE5 가능성 높음)
+        var hasIoStore = false;
+        try
+        {
+            paksDir ??= Directory.EnumerateDirectories(root, "Paks", SearchOption.AllDirectories).FirstOrDefault();
+            if (paksDir != null && Directory.Exists(paksDir))
+            {
+                hasIoStore = Directory.EnumerateFiles(paksDir, "*.utoc").Any() || Directory.EnumerateFiles(paksDir, "*.ucas").Any();
+            }
+        }
+        catch { }
+
+        r.UnrealVersion = hasIoStore ? "UE5" : "UE4/UE5";
+        r.Evidence.Add($"Unreal Engine ({r.UnrealVersion}) 프로젝트");
+        if (paksDir != null) r.Evidence.Add($"Content Paks: {Path.GetRelativePath(root, paksDir)}");
+
+        // UE4SS 모드 로더 및 프록시 DLL 감지
+        DetectUnrealModLoaders(root, dir, r);
+        return true;
+    }
+
+    private static void DetectUnrealModLoaders(string root, string binDir, DetectionResult r)
+    {
+        var dirsToCheck = new[] { binDir, root };
+        foreach (var d in dirsToCheck.Distinct())
+        {
+            var ue4ssDll = Path.Combine(d, "ue4ss.dll");
+            var ue4ssIni = Path.Combine(d, "UE4SS-settings.ini");
+            var dwmapi = Path.Combine(d, "dwmapi.dll");
+            var xinput = Path.Combine(d, "xinput1_3.dll");
+            var modsDir = Path.Combine(d, "Mods");
+
+            if (File.Exists(ue4ssDll) || File.Exists(ue4ssIni))
+            {
+                var proxy = File.Exists(dwmapi) ? "dwmapi.dll" : (File.Exists(xinput) ? "xinput1_3.dll" : "직접 주입");
+                var modCount = Directory.Exists(modsDir) ? Directory.EnumerateDirectories(modsDir).Count() : 0;
+                r.ModLoaders.Add($"UE4SS (프록시: {proxy}, 모드 {modCount}개)");
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Godot 엔진 프로젝트(루트 또는 하위 폴더의 *.pck 파일)를 검사합니다.
+    /// </summary>
+    private static bool InspectGodotWindows(string dir, string exePath, DetectionResult r)
+    {
+        try
+        {
+            var pck = Directory.EnumerateFiles(dir, "*.pck").FirstOrDefault();
+            if (pck != null)
+            {
+                r.Kind = TargetKind.Exe;
+                r.Engine = "Godot";
+                r.GameRoot = dir;
+                r.Evidence.Add($"Godot 엔진 게임 ({Path.GetFileName(pck)} 발견) — GDRE 도구 또는 gdsdecomp로 스크립트 복원 가능");
+                return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    /// <summary>
+    /// Steam API 런타임 및 안티치트(Easy Anti-Cheat, BattlEye) 솔루션을 검사합니다.
+    /// </summary>
+    private static void InspectSteamAndProtections(string dir, DetectionResult r)
+    {
+        try
+        {
+            // Steam API DLL 검사
+            var hasSteamApi = File.Exists(Path.Combine(dir, "steam_api64.dll")) ||
+                              File.Exists(Path.Combine(dir, "steam_api.dll"));
+            if (hasSteamApi)
+            {
+                r.HasSteamApi = true;
+                r.Evidence.Add("Steam API 런타임 (steam_api*.dll) — Steam DRM/DLC 연동");
+
+                var appidFile = Path.Combine(dir, "steam_appid.txt");
+                if (File.Exists(appidFile))
+                {
+                    var txt = File.ReadAllText(appidFile).Trim();
+                    if (uint.TryParse(txt, out _))
+                    {
+                        r.SteamAppId = txt;
+                        r.Evidence.Add($"Steam AppID: {txt}");
+                    }
+                }
+            }
+
+            // 안티치트 검사
+            if (Directory.Exists(Path.Combine(dir, "EasyAntiCheat")) ||
+                File.Exists(Path.Combine(dir, "EasyAntiCheat_EOS_Setup.exe")) ||
+                Directory.EnumerateFiles(dir, "*EasyAntiCheat*.dll").Any())
+            {
+                r.AntiCheat = "EasyAntiCheat";
+                r.Warnings.Add("Easy Anti-Cheat(EAC) 감지 — 단절 환경/오프라인 모딩 시 안티치트 비활성화 또는 바이패스 필요");
+            }
+            else if (Directory.Exists(Path.Combine(dir, "BattlEye")) ||
+                     File.Exists(Path.Combine(dir, "BEService.exe")) ||
+                     Directory.EnumerateFiles(dir, "*BattlEye*.dll").Any())
+            {
+                r.AntiCheat = "BattlEye";
+                r.Warnings.Add("BattlEye 감지 — 오프라인 모드 실행 시 안티치트 우회 필요");
+            }
+        }
+        catch { }
     }
 
     /// <summary>

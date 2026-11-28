@@ -10,19 +10,25 @@ namespace ReaToolMods.Services;
 public static class ClipboardService
 {
     /// <summary>
-    /// Avalonia 클립보드로 복사하고, 실패하면 Windows clip 명령으로 대체합니다.
+    /// Avalonia 클립보드로 복사하고, 잠금 충돌 시 재시도하며, 실패하면 Windows clip 명령으로 대체합니다.
     /// </summary>
     public static async Task<bool> SetTextAsync(string text)
     {
-        try
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
-            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow.Clipboard: { } clipboard })
+            try
             {
-                await clipboard.SetTextAsync(text);
-                return true;
+                if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow.Clipboard: { } clipboard })
+                {
+                    await clipboard.SetTextAsync(text);
+                    return true;
+                }
+            }
+            catch
+            {
+                if (attempt < 3) await Task.Delay(attempt * 50);
             }
         }
-        catch { }
 
         if (!OperatingSystem.IsWindows()) return false;
 

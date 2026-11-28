@@ -40,11 +40,18 @@ public static class WindowsAutomation
     private static extern uint GetCurrentThreadId();
 
     [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 
     [DllImport("user32.dll")]
     private static extern uint MapVirtualKey(uint uCode, uint uMapType);
 
+    private const byte VK_MENU = 0x12; // Alt
     private const byte VK_CONTROL = 0x11;
     private const byte VK_V = 0x56;
     private const byte VK_RETURN = 0x0D;
@@ -118,26 +125,38 @@ public static class WindowsAutomation
     }
 
     /// <summary>
-    /// 지정된 창을 최상위 전면으로 강제 포커스합니다.
+    /// 지정된 창을 최상위 전면으로 강제 포커스합니다 (최소화 복원, 스레드 입력 연결, Alt 더미 키로 포커스 락 해제).
     /// </summary>
     public static void ForceForeground(IntPtr hWnd)
     {
         if (hWnd == IntPtr.Zero) return;
 
+        // 1. 최소화 상태면 복원
+        if (IsIconic(hWnd))
+        {
+            ShowWindow(hWnd, SW_RESTORE);
+        }
+
         IntPtr fgWnd = GetForegroundWindow();
         uint fgThread = GetWindowThreadProcessId(fgWnd, out _);
         uint curThread = GetCurrentThreadId();
+
+        // 2. Alt 키를 가볍게 눌렀다 떼어 Windows의 Foreground Lock Timeout 해제 권한 획득
+        keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
+        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
 
         if (fgThread != curThread && fgThread != 0)
         {
             AttachThreadInput(curThread, fgThread, true);
             ShowWindow(hWnd, SW_RESTORE);
+            BringWindowToTop(hWnd);
             SetForegroundWindow(hWnd);
             AttachThreadInput(curThread, fgThread, false);
         }
         else
         {
             ShowWindow(hWnd, SW_RESTORE);
+            BringWindowToTop(hWnd);
             SetForegroundWindow(hWnd);
         }
     }
